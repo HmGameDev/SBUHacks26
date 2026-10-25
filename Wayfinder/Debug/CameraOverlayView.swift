@@ -1,9 +1,12 @@
 import SwiftUI
 
 /// What the camera sees and what the app made of it: every sampled depth point colored by class,
-/// the walking corridor on the floor, and the chosen heading.
+/// the walking corridor on the floor, the chosen heading (yellow), and the route direction (blue).
+/// `compact` is the home-screen version: no controls, just the picture and the key numbers.
 struct CameraOverlayView: View {
     let snapshot: DebugSnapshot
+    var route: GuidedNavigator.Progress?
+    var compact = false
     @State private var layer = Layer.camera
     @State private var showPoints = true
     @State private var showFloor = false
@@ -17,11 +20,13 @@ struct CameraOverlayView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Picker("Layer", selection: $layer) {
-                ForEach(Layer.allCases) { Text($0.rawValue).tag($0) }
+            if !compact {
+                Picker("Layer", selection: $layer) {
+                    ForEach(Layer.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
 
             GeometryReader { geo in
                 let mapper = PortraitMapper(depthWidth: snapshot.depth.width, depthHeight: snapshot.depth.height, in: geo.size)
@@ -34,22 +39,57 @@ struct CameraOverlayView: View {
                 }
             }
             .overlay(alignment: .bottom) { readout }
+            .overlay(alignment: .top) { routeBanner }
 
-            HStack {
-                Toggle("Points", isOn: $showPoints)
-                Toggle("Floor", isOn: $showFloor)
-                Toggle("Path", isOn: $showCorridor)
+            if !compact {
+                HStack {
+                    Toggle("Points", isOn: $showPoints)
+                    Toggle("Floor", isOn: $showFloor)
+                    Toggle("Path", isOn: $showCorridor)
+                }
+                .toggleStyle(.button)
+                .font(.caption)
+
+                LegendRow(items: [
+                    ("Floor", PointClass.floor.color), ("Obstacle", PointClass.obstacle.color),
+                    ("Overhead", PointClass.overhead.color), ("Drop", PointClass.dropOff.color),
+                    ("Low conf.", PointClass.lowConfidence.color), ("Heading", .yellow), ("Route", Theme.route),
+                ])
             }
-            .toggleStyle(.button)
-            .font(.caption)
-
-            LegendRow(items: [
-                ("Floor", PointClass.floor.color), ("Obstacle", PointClass.obstacle.color),
-                ("Overhead", PointClass.overhead.color), ("Drop", PointClass.dropOff.color),
-                ("Low conf.", PointClass.lowConfidence.color), ("Heading", .yellow),
-            ])
         }
-        .padding(.bottom, 6)
+        .padding(.bottom, compact ? 0 : 6)
+    }
+
+    /// Next turn, how far, and an arrow toward the route, when Guided mode is navigating.
+    @ViewBuilder
+    private var routeBanner: some View {
+        if let route {
+            HStack(spacing: 10) {
+                if let bearing = route.relativeBearing {
+                    Image(systemName: "location.north.fill")
+                        .font(.title2)
+                        .rotationEffect(.degrees(bearing))
+                        .foregroundStyle(Theme.route)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(route.nextInstruction).font(.subheadline.bold()).lineLimit(2)
+                    HStack(spacing: 8) {
+                        if let turn = route.distanceToNextTurn {
+                            Text("in \(GuidedNavigator.spokenDistance(turn))")
+                        }
+                        if let bearing = route.relativeBearing {
+                            Text(String(format: "route %+.0f°", bearing))
+                        }
+                    }
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+            .padding(8)
+        }
     }
 
     @ViewBuilder
@@ -92,6 +132,12 @@ struct CameraOverlayView: View {
             }
         }
 
+        if showCorridor, snapshot.goalPath.count >= 2 {
+            var path = Path()
+            path.addLines(snapshot.goalPath.map { mapper.point($0) })
+            context.stroke(path, with: .color(Theme.route), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [8, 6]))
+        }
+
         if showCorridor, snapshot.headingPath.count >= 2 {
             var path = Path()
             path.addLines(snapshot.headingPath.map { mapper.point($0) })
@@ -114,17 +160,23 @@ struct CameraOverlayView: View {
         let nearest = p.nearestObstacle.map { String(format: "%.1f m", $0) } ?? "clear"
         return VStack(spacing: 2) {
             Text(nearest)
-                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .font(.system(size: compact ? 30 : 44, weight: .bold, design: .rounded))
                 .foregroundStyle(p.urgency > 0.6 ? Color.red : Color.white)
             Text(String(format: "heading %+.0f°   urgency %.2f", p.heading * 180 / .pi, p.urgency))
                 .font(.caption.monospacedDigit())
+            if let stairs = p.stairs {
+                Text(String(format: "stairs %@ %.1f m (%ld steps)", stairs.direction.rawValue, stairs.distance, stairs.steps))
+                    .font(.caption.bold()).foregroundStyle(.cyan)
+            }
             if let drop = p.dropOffAhead {
                 Text(String(format: "drop-off %.1f m", drop)).font(.caption.bold()).foregroundStyle(.purple)
             }
             if let overhead = p.overheadAhead {
                 Text(String(format: "overhead %.1f m", overhead)).font(.caption.bold()).foregroundStyle(.orange)
             }
-            Text(p.reason).font(.caption2).foregroundStyle(.secondary)
+            if !compact {
+                Text(p.reason).font(.caption2).foregroundStyle(.secondary)
+            }
         }
         .padding(8)
         .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))

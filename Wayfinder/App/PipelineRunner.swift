@@ -14,6 +14,8 @@ struct DebugSnapshot: Sendable {
     let planner: PlannerOutput
     let corridor: [SIMD2<Float>]
     let headingPath: [SIMD2<Float>]
+    let goalPath: [SIMD2<Float>]
+    let profile: [SIMD2<Float>]
     let floorStatus: FloorEstimator.Status
     let cameraHeight: Float?
     let trackingNormal: Bool
@@ -188,6 +190,8 @@ final class PipelineRunner {
                 planner: result.planner,
                 corridor: result.corridor,
                 headingPath: result.headingPath,
+                goalPath: result.goalPath,
+                profile: result.profile,
                 floorStatus: result.floorStatus,
                 cameraHeight: result.cameraHeight,
                 trackingNormal: result.trackingNormal,

@@ -4,6 +4,17 @@ enum CellState: UInt8, Sendable {
     case unknown, free, obstacle, dropOff, overhead
 
     var isBlocking: Bool { self == .obstacle || self == .dropOff || self == .overhead }
+
+    /// One cell's point counts for one frame. A few stray points above or below the floor are not enough to
+    /// call the cell blocked, and not enough to call it free either, so it stays unknown for this frame.
+    static func classify(floor: UInt16, low: UInt16, high: UInt16, drop: UInt16, minPoints: Int) -> CellState {
+        let need = UInt16(max(1, minPoints))
+        if low >= need { return .obstacle }
+        if high >= need { return .overhead }
+        if drop >= need { return .dropOff }
+        if low > 0 || high > 0 || drop > 0 { return .unknown }
+        return floor > 0 ? .free : .unknown
+    }
 }
 
 /// Reserved for obstacle identification (section 8 of the foundation prompt). Never populated yet.
@@ -143,55 +154,10 @@ struct GridAccumulator {
     }
 
     func rawStates(minPoints: Int) -> [CellState] {
-        let need = UInt16(max(1, minPoints))
-        return floor.indices.map { i in
-            if low[i] >= need { return .obstacle }
-            if high[i] >= need { return .overhead }
-            if drop[i] >= need { return .dropOff }
-            if floor[i] > 0 || low[i] > 0 || high[i] > 0 || drop[i] > 0 { return .free }
-            return .unknown
+        floor.indices.map { i in
+            CellState.classify(floor: floor[i], low: low[i], high: high[i], drop: drop[i], minPoints: minPoints)
         }
     }
 
     func hits(_ i: Int) -> UInt16 { floor[i] &+ low[i] &+ high[i] &+ drop[i] }
-}
-
-/// A blocking cell must be seen in `persistenceFrames` of the last three frames, which removes
-/// single-frame depth noise at the cost of one frame of delay.
-struct GridTracker {
-    private var history: [[CellState]] = []
-
-    mutating func reset() { history.removeAll() }
-
-    mutating func update(raw: [CellState], tuning t: Tuning) -> [CellState] {
-        if let last = history.last, last.count != raw.count { history.removeAll() }
-        history.append(raw)
-        if history.count > 3 { history.removeFirst() }
-        let need = max(1, min(t.persistenceFrames, history.count))
-
-        var out = raw
-        for i in raw.indices {
-            var obstacle = 0, drop = 0, overhead = 0
-            for frame in history {
-                switch frame[i] {
-                case .obstacle: obstacle += 1
-                case .dropOff: drop += 1
-                case .overhead: overhead += 1
-                default: break
-                }
-            }
-            if obstacle + drop + overhead >= need {
-                if obstacle >= drop && obstacle >= overhead {
-                    out[i] = .obstacle
-                } else if drop >= overhead {
-                    out[i] = .dropOff
-                } else {
-                    out[i] = .overhead
-                }
-            } else if raw[i].isBlocking {
-                out[i] = .free // seen, but not confirmed yet
-            }
-        }
-        return out
-    }
 }

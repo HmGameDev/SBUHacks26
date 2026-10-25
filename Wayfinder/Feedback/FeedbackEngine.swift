@@ -9,6 +9,13 @@ final class FeedbackEngine {
     @ObservationIgnored let speech = SpeechChannel()
     @ObservationIgnored let haptics = HapticChannel()
     @ObservationIgnored var tuning: () -> Tuning = { Tuning() }
+    @ObservationIgnored var preferences: () -> Preferences = { Preferences() } {
+        didSet {
+            let read = preferences
+            speech.preferences = read
+            haptics.strength = { read().hapticStrength }
+        }
+    }
 
     /// Bumped whenever the cue log changes, so debug views refresh.
     private(set) var logVersion = 0
@@ -60,12 +67,39 @@ final class FeedbackEngine {
     func test(_ phrase: String) {
         let tier: CueTier
         switch phrase {
-        case "stop", "step_down": tier = .stop
-        case "duck": tier = .overhead
+        case "stop", "step_down", "stairs_up", "stairs_down": tier = .stop
         case "left", "right", "slight_left", "slight_right": tier = .steer
         default: tier = .status
         }
         say(phrase, tier: tier, haptic: nil, reason: "manual test")
+    }
+
+    // MARK: - Settings previews (play right away, cutting off whatever is playing)
+
+    /// Bundled phrases in order, e.g. ["left", "dist_2"].
+    func preview(phrases: [String]) {
+        speech.play(Cue(tier: .status, phrases: phrases), interrupt: true)
+    }
+
+    /// Free text; `cloud` uses the live ElevenLabs voice when one is configured.
+    func preview(text: String, cloud: Bool = false) {
+        speech.play(Cue(tier: .guided, text: text), interrupt: true, allowCloud: cloud)
+    }
+
+    func preview(haptic: HapticEvent) {
+        haptics.play(haptic)
+    }
+
+    /// The proximity pulse speeding up as an obstacle gets closer, over about two seconds.
+    func previewPulse() {
+        let t = tuning()
+        for step in 0...4 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.5) { [weak self] in
+                let u = Double(step) / 4
+                self?.haptics.setPulse(interval: t.pulseMaxInterval + (t.pulseMinInterval - t.pulseMaxInterval) * u)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in self?.haptics.setPulse(interval: nil) }
     }
 
     private func execute(_ commands: [FeedbackCommand], triggeredAt frameTimestamp: TimeInterval?) {
@@ -80,7 +114,9 @@ final class FeedbackEngine {
                     // Nothing plays, so finish right away and let the queue drain.
                     DispatchQueue.main.async { [weak self] in self?.speechFinished() }
                 } else {
-                    speech.play(cue, interrupt: interrupt)
+                    // Only directions may wait on the network; every safety and steering cue is a bundled clip.
+                    let allowCloud = cue.phrases.isEmpty && cue.tier <= .guided
+                    speech.play(cue, interrupt: interrupt, allowCloud: allowCloud)
                 }
             case .haptic(let event):
                 if !muted { haptics.play(event) }

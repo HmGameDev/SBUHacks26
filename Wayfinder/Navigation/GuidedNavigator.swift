@@ -29,6 +29,32 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
         let stepIndex: Int
     }
 
+    /// A search result the user can pick.
+    struct Place: Identifiable {
+        let id = UUID()
+        let item: MKMapItem
+        let name: String
+        let detail: String
+        /// Meters from the user, if their location is known.
+        let distance: Double?
+
+        /// What VoiceOver and the voice say for this result.
+        var spoken: String {
+            let place = detail.isEmpty ? name : "\(name), \(detail)"
+            guard let distance else { return place }
+            return "\(place), \(GuidedNavigator.spokenDistance(distance)) away"
+        }
+    }
+
+    /// Live route progress for the home screen and the camera view.
+    struct Progress: Equatable {
+        var nextInstruction: String
+        var distanceToNextTurn: Double?
+        var remaining: Double?
+        /// Bearing to the next waypoint relative to the way the user faces, degrees (negative is left).
+        var relativeBearing: Double?
+    }
+
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
     }
@@ -36,6 +62,10 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
     /// Speak a dynamic sentence (tier .guided) or a bundled phrase id (tier .status).
     var onSpeakText: ((String) -> Void)?
     var onSpeakPhrase: ((String) -> Void)?
+    var onProgress: ((Progress?) -> Void)?
+    private(set) var progress: Progress? {
+        didSet { if progress != oldValue { onProgress?(progress) } }
+    }
 
     private(set) var waypoints: [Waypoint] = []
     private(set) var waypointIndex = 0
@@ -48,6 +78,7 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
     private var destinationName = ""
     private var destinationQuery = ""
     private var destination: CLLocationCoordinate2D?
+    private var destinationItem: MKMapItem?
     private var lastReroute = Date.distantPast
     private var routeTask: Task<Void, Never>?
 
@@ -68,11 +99,47 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
         stop()
         destinationQuery = query
         state = .searching(query)
-        manager.requestWhenInUseAuthorization()
-        manager.startUpdatingLocation()
+        beginLocationUpdates()
         routeTask = Task { @MainActor [weak self] in
             await self?.route(to: query)
         }
+    }
+
+    /// Start a route to a place the user picked from `search`.
+    func start(place: Place) {
+        stop()
+        destinationQuery = place.name
+        state = .searching(place.name)
+        beginLocationUpdates()
+        routeTask = Task { @MainActor [weak self] in
+            await self?.route(to: place.item, query: place.name)
+        }
+    }
+
+    /// Places matching `query`, nearest first when the location is known.
+    @MainActor
+    func search(_ query: String) async throws -> [Place] {
+        beginLocationUpdates()
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        if let location {
+            request.region = MKCoordinateRegion(center: location.coordinate, latitudinalMeters: 20_000, longitudinalMeters: 20_000)
+        }
+        let response = try await MKLocalSearch(request: request).start()
+        let places = response.mapItems.prefix(8).map { item -> Place in
+            let coordinate = item.placemark.coordinate
+            let meters = location.map { self.distance($0, coordinate) }
+            let detail = [item.placemark.thoroughfare, item.placemark.locality].compactMap { $0 }.joined(separator: ", ")
+            return Place(item: item, name: item.name ?? query, detail: detail, distance: meters)
+        }
+        return places.sorted { ($0.distance ?? .infinity) < ($1.distance ?? .infinity) }.prefix(5).map { $0 }
+    }
+
+    private func beginLocationUpdates() {
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+        manager.startUpdatingLocation()
     }
 
     func stop() {
@@ -84,6 +151,8 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
         waypointIndex = 0
         announcedStep = -1
         destination = nil
+        destinationItem = nil
+        progress = nil
         state = .idle
     }
 
@@ -111,18 +180,22 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
     @MainActor
     private func route(to query: String) async {
         do {
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = query
-            if let location {
-                request.region = MKCoordinateRegion(center: location.coordinate, latitudinalMeters: 20_000, longitudinalMeters: 20_000)
-            }
-            let search = try await MKLocalSearch(request: request).start()
-            guard let item = search.mapItems.first else {
+            guard let place = try await search(query).first else {
                 state = .failed("No place found for \(query)")
                 onSpeakText?("I couldn't find \(query).")
                 return
             }
+            await route(to: place.item, query: query)
+        } catch {
+            guard !Task.isCancelled else { return }
+            state = .failed(error.localizedDescription)
+            onSpeakText?("I couldn't search for \(query).")
+        }
+    }
 
+    @MainActor
+    private func route(to item: MKMapItem, query: String) async {
+        do {
             let directions = MKDirections.Request()
             directions.source = MKMapItem.forCurrentLocation()
             directions.destination = item
@@ -137,14 +210,15 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
             }
 
             destinationName = item.name ?? query
+            destinationItem = item
             destination = item.placemark.coordinate
             steps = route.steps
             waypoints = Self.buildWaypoints(steps: route.steps, spacing: waypointSpacing)
             waypointIndex = 0
             announcedStep = -1
             state = .navigating(destinationName)
-            let meters = Int(route.distance.rounded())
-            onSpeakText?("Route to \(destinationName), \(meters) meters.")
+            let minutes = max(1, Int((route.expectedTravelTime / 60).rounded()))
+            onSpeakText?("Starting route to \(destinationName). \(Self.spokenDistance(route.distance)), about \(minutes) minutes walking.")
             if let location { advance(from: location) }
         } catch {
             guard !Task.isCancelled else { return }
@@ -215,17 +289,54 @@ final class GuidedNavigator: NSObject, CLLocationManagerDelegate {
             }
         }
 
+        updateProgress(from: location)
+
         // Far from the route: ask for a new one, at most every 30 seconds.
         let nearest = waypoints[waypointIndex...].prefix(20).map { distance(location, $0.coordinate) }.min() ?? 0
         if nearest > offRouteDistance, Date().timeIntervalSince(lastReroute) > 30 {
             lastReroute = Date()
             onSpeakPhrase?("recalculating")
             let query = destinationQuery
+            let item = destinationItem
             routeTask?.cancel()
             routeTask = Task { @MainActor [weak self] in
-                await self?.route(to: query)
+                if let item {
+                    await self?.route(to: item, query: query)
+                } else {
+                    await self?.route(to: query)
+                }
             }
         }
+    }
+
+    private func updateProgress(from location: CLLocation) {
+        guard waypointIndex < waypoints.count else { return }
+        let currentStep = waypoints[waypointIndex].stepIndex
+        let nextStep = currentStep + 1
+        var next = Progress(nextInstruction: "Arrive at \(destinationName)")
+        if nextStep < steps.count, !steps[nextStep].instructions.isEmpty {
+            next.nextInstruction = steps[nextStep].instructions
+            if let turn = waypoints[waypointIndex...].first(where: { $0.stepIndex == nextStep }) {
+                next.distanceToNextTurn = distance(location, turn.coordinate)
+            }
+        } else {
+            next.distanceToNextTurn = distanceToDestination
+        }
+        next.remaining = distanceToDestination
+        if let heading = bodyHeadingDegrees {
+            let bearing = Self.bearing(from: location.coordinate, to: waypoints[waypointIndex].coordinate)
+            next.relativeBearing = Self.normalize180(bearing - heading)
+        }
+        progress = next
+    }
+
+    /// "350 meters", "1.2 kilometers".
+    static func spokenDistance(_ meters: Double) -> String {
+        if meters < 1000 {
+            let rounded = meters < 100 ? Int((meters / 5).rounded()) * 5 : Int((meters / 10).rounded()) * 10
+            return "\(rounded) meters"
+        }
+        return String(format: "%.1f kilometers", meters / 1000)
     }
 
     private func distance(_ location: CLLocation, _ coordinate: CLLocationCoordinate2D) -> Double {

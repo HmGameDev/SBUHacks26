@@ -100,6 +100,7 @@ final class PlannerTests: XCTestCase {
     }
 
     func testInferredDropFromMissingFloor() {
+        tuning.inferDropFromMissingFloor = true
         var grid = OccupancyGrid(tuning: tuning)
         fill(&grid, forward: 0.3...1.0, lateral: -edge...edge, with: .free)
         // 1.0 to 1.6 m: no returns at all (a step edge), then floor again.
@@ -110,16 +111,99 @@ final class PlannerTests: XCTestCase {
         XCTAssertEqual(output.dropOffAhead ?? 0, 1.0, accuracy: 0.15)
     }
 
-    func testGridTrackerNeedsTwoOfThreeFrames() {
-        var tracker = GridTracker()
-        let blocked: [CellState] = [.obstacle]
-        let clear: [CellState] = [.free]
-        XCTAssertEqual(tracker.update(raw: blocked, tuning: tuning), [.obstacle], "first frame: one of one")
-        tracker.reset()
-        _ = tracker.update(raw: clear, tuning: tuning)
-        _ = tracker.update(raw: clear, tuning: tuning)
-        XCTAssertEqual(tracker.update(raw: blocked, tuning: tuning), [.free], "one noisy frame is ignored")
-        XCTAssertEqual(tracker.update(raw: blocked, tuning: tuning), [.obstacle], "two of three confirms")
+    func testWorldMapNeedsTwoFramesAndRemembers() {
+        var map = WorldMap(cellSize: tuning.cellSize)
+        let key = map.key(x: 1.05, z: -2.05)
+        map.update(observed: [key: .obstacle], time: 0, tuning: tuning)
+        XCTAssertEqual(map.state(key: key, time: 0, tuning: tuning), .free, "one frame is not enough")
+        map.update(observed: [key: .obstacle], time: 0.033, tuning: tuning)
+        XCTAssertEqual(map.state(key: key, time: 0.033, tuning: tuning), .obstacle, "two frames confirm")
+        // Out of view: remembered until memorySeconds pass.
+        XCTAssertEqual(map.state(key: key, time: 5, tuning: tuning), .obstacle)
+        XCTAssertEqual(map.state(key: key, time: tuning.memorySeconds + 1, tuning: tuning), .unknown)
+        // Seen clear again: it clears.
+        map.update(observed: [key: .free], time: 0.1, tuning: tuning)
+        XCTAssertEqual(map.state(key: key, time: 0.1, tuning: tuning), .free)
+    }
+
+    func testStrayPointsLeaveACellUnknown() {
+        XCTAssertEqual(CellState.classify(floor: 5, low: 1, high: 0, drop: 0, minPoints: 3), .unknown)
+        XCTAssertEqual(CellState.classify(floor: 5, low: 0, high: 0, drop: 0, minPoints: 3), .free)
+        XCTAssertEqual(CellState.classify(floor: 0, low: 3, high: 0, drop: 0, minPoints: 3), .obstacle)
+    }
+
+    func testSingleDropCellDoesNotBlock() {
+        var grid = openGrid()
+        fill(&grid, forward: 1.2...1.3, lateral: 0.0...0.1, with: .dropOff)
+        let output = run(GapPlanner(), grid: grid, seconds: 0.5)
+        XCTAssertNil(output.dropOffAhead)
+        XCTAssertNil(output.nearestObstacle)
+    }
+
+    func testOverheadDoesNotBlockByDefault() {
+        var grid = openGrid()
+        fill(&grid, forward: 1.0...1.1, lateral: -edge...edge, with: .overhead)
+        let output = run(GapPlanner(), grid: grid, seconds: 0.5)
+        XCTAssertNil(output.nearestObstacle)
+        XCTAssertEqual(output.urgency, 0, accuracy: 0.001)
+    }
+
+    func testPrefersPathWithRoomOverPathAlongAWall() {
+        // Box ahead. The left gap runs along a wall; the right gap is open. Go right.
+        var grid = openGrid()
+        fill(&grid, forward: 1.0...1.2, lateral: -0.4...0.4, with: .obstacle)
+        fill(&grid, forward: 0.3...4.0, lateral: -edge...(-0.9), with: .obstacle)
+        let output = run(GapPlanner(), grid: grid, seconds: 2)
+        XCTAssertGreaterThan(output.heading, 0.1)
+    }
+
+    func testIntentBreaksATie() {
+        // Symmetric box: with the user's walking direction to the right, choose right.
+        var grid = openGrid()
+        fill(&grid, forward: 1.2...1.4, lateral: -0.5...0.5, with: .obstacle)
+        let planner = GapPlanner()
+        var output = PlannerOutput()
+        var t = 0.0
+        while t <= 2 {
+            output = planner.plan(grid: grid, time: t, goalHeading: nil, intentHeading: 0.3, tuning: tuning).0
+            t += 1.0 / 30.0
+        }
+        XCTAssertGreaterThan(output.heading, 0.3)
+    }
+
+    func testStairsUpAreDetected() {
+        // Floor to 1.5 m, then 17 cm risers with 28 cm treads.
+        var profile: [Float?] = []
+        var d: Float = 0.3
+        while d < 3.5 {
+            let height: Float = d < 1.5 ? 0 : 0.17 * Float(Int((d - 1.5) / 0.28) + 1)
+            profile.append(height)
+            d += StairDetector.binSize
+        }
+        let stairs = StairDetector.detect(StairDetector.plateaus(profile, start: 0.3))
+        XCTAssertEqual(stairs?.direction, .up)
+        XCTAssertEqual(stairs?.distance ?? 0, 1.5, accuracy: 0.1)
+        XCTAssertGreaterThanOrEqual(stairs?.steps ?? 0, 2)
+    }
+
+    func testStairsDownAreDetectedButACurbIsNot() {
+        func profile(steps: Int) -> [Float?] {
+            var values: [Float?] = []
+            var d: Float = 0.3
+            while d < 3.5 {
+                let level = d < 1.2 ? 0 : min(steps, Int((d - 1.2) / 0.3) + 1)
+                values.append(-0.17 * Float(level))
+                d += StairDetector.binSize
+            }
+            return values
+        }
+        XCTAssertEqual(StairDetector.detect(StairDetector.plateaus(profile(steps: 5), start: 0.3))?.direction, .down)
+        XCTAssertNil(StairDetector.detect(StairDetector.plateaus(profile(steps: 1), start: 0.3)), "one step is a curb")
+    }
+
+    func testFlatFloorHasNoStairs() {
+        let profile = [Float?](repeating: 0.01, count: 60)
+        XCTAssertNil(StairDetector.detect(StairDetector.plateaus(profile, start: 0.3)))
     }
 
     func testCenteredBoxSteersAroundIt() {

@@ -11,7 +11,7 @@ struct DebugRootView: View {
             VStack(spacing: 0) {
                 HUDView()
                 TabView {
-                    tab { CameraOverlayView(snapshot: $0) }
+                    tab { CameraOverlayView(snapshot: $0, route: model.navigationProgress) }
                         .tabItem { Label("Camera", systemImage: "camera.viewfinder") }
                     tab { MapTab(snapshot: $0, tuning: model.tuningStore.tuning) }
                         .tabItem { Label("Map", systemImage: "square.grid.3x3") }

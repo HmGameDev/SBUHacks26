@@ -136,7 +136,7 @@ A top-down grid in the body frame, 0 to 4 m forward and 1.5 m to each side, 10 c
 | 0.08 to 2.0 m | Obstacle |
 | over 2.0 m | Ignore (ceiling, sky, high branches) |
 
-Mark a point between 1.2 and 2.0 m as **overhead** when there is no obstacle below it in the same cell. That is the hazard a cane misses.
+Mark a point between 1.2 and 2.0 m as **overhead** when there is no obstacle below it in the same cell. That is the hazard a cane misses. *Update after first device tests:* overhead was wrong too often on a chest mount, so it is drawn in the debug views but neither spoken nor blocking by default (`overheadBlocks`).
 
 A cell needs at least 3 points to be marked, and must be marked in 2 of the last 3 frames before it counts. Cells with no points stay `unknown`. A large unknown region on the floor directly ahead, where floor was visible a moment ago, is a drop-off candidate too (LiDAR often returns nothing at a step edge).
 
@@ -175,7 +175,7 @@ A phone running LiDAR, the camera, and processing inside a chest harness gets ho
 | --- | --- | --- | --- |
 | Stop | Urgency at least 0.9, or drop-off within 1.5 m | "Stop." or "Step down." Interrupts anything. | One long strong buzz (0.6 s, full intensity) |
 | Steer | Path ahead blocked within 2.5 m and a gap exists | "Left." "Right." "Slight left." "Slight right." | Pulse rate rises as the obstacle gets closer |
-| Overhead | Overhead obstacle within 2 m | "Duck." or "Overhead." | Two quick sharp taps |
+| Stairs | Two or more steps up or down within 2.5 m | "Stairs going up ahead." / "Stairs going down ahead." | Two quick sharp taps |
 | Clear | Path was blocked and is now clear for 1 s | "Clear." (optional, user setting) | Nothing |
 | Status | Mode change, calibration, errors, low battery, heat | Full short sentence | One light tap |
 | Guided | Turn instructions, arrival | Full sentence | One light tap before speaking |
@@ -186,9 +186,9 @@ Vibration encodes how urgent, never which way. Do not invent left/right vibratio
 
 Generate every fixed phrase once with ElevenLabs, using a script in `tools/generate_cues/`, and bundle the audio files in the app. Fixed phrases cover the Stop, Steer, Overhead, Clear, and most Status cues, plus distances of one to four meters (the sensor's useful range). Bundled clips play with no network and no delay, and keep the voice consistent.
 
-For dynamic text (street names in Guided mode), use `AVSpeechSynthesizer`. ElevenLabs streaming would need the API key in the app, which section 6.2's key rule forbids. Never route Stop, Steer, or Overhead through the network.
+For dynamic text (directions and street names in Guided mode), use live ElevenLabs (`eleven_flash_v2_5`) when a key is configured and the reply arrives within 1.5 s, and fall back to the best installed `AVSpeechSynthesizer` voice otherwise. Never route Stop, Steer, Stairs, or Step down through the network.
 
-The ElevenLabs API key belongs only in the generation script's environment, never in the app.
+The team chose (2026-10-25) to ship the ElevenLabs key inside the demo app for live directions: it comes from a gitignored `Wayfinder/Secrets.plist` or the Settings screen, never from git. Anyone with the app binary can extract it, so use a key with a low spending limit.
 
 ### 6.3 Speaker rules
 
@@ -197,7 +197,7 @@ The ElevenLabs API key belongs only in the generation script's environment, neve
 - Make sure the harness does not cover the speaker grille on the bottom edge. Test in a noisy hallway and outdoors next to traffic.
 - Speak on change, not on every frame. Repeat a Steer cue only if it is still true after 2.5 s.
 - Stop preempts everything, mid-word. Lower tiers queue and expire after 1.5 s.
-- A user setting for verbosity: Minimal (Stop, Overhead, Step down only), Normal (adds Steer), Chatty (adds Clear and distances).
+- A user setting for verbosity: Minimal (Stop, Stairs, Step down only), Normal (adds Steer), Chatty (adds Clear and distances).
 - Silence means the path is clear.
 
 ### 6.4 Control without touching the screen

@@ -12,6 +12,10 @@ struct PlannerOutput: Sendable, Equatable {
     var nearestObstacle: Float?
     var dropOffAhead: Float?
     var overheadAhead: Float?
+    var stairs: StairInfo?
+    /// Route direction (Guided mode) or the direction the user was walking (passive), relative to straight.
+    var goalHeading: Float?
+    var intentHeading: Float?
     var pathVisible = false
     /// Every direction is blocked close by.
     var blocked = false
@@ -23,7 +27,22 @@ struct PlannerOutput: Sendable, Equatable {
 struct GapCandidate: Sendable, Equatable {
     let angle: Float
     let freeDistance: Float
+    /// Free distance of the wider clearance corridor along the same heading.
+    var clearDistance: Float = 0
     let score: Float
+}
+
+extension Tuning {
+    /// How many cells of a kind must sit side by side across the corridor before they block it.
+    /// 0 means the kind never blocks.
+    func blockRequirement(_ state: CellState) -> Int {
+        switch state {
+        case .obstacle: 1
+        case .dropOff: max(1, dropMinCells)
+        case .overhead: overheadBlocks ? 1 : 0
+        case .free, .unknown: 0
+        }
+    }
 }
 
 /// Picks the clearest heading through the occupancy grid. Adapted from Shepherd's 16-column gap search,
@@ -52,22 +71,30 @@ final class GapPlanner {
         lastTime = nil
     }
 
-    func plan(grid: OccupancyGrid, time: TimeInterval, goalHeading: Float?, tuning t: Tuning) -> (PlannerOutput, [GapCandidate]) {
+    func plan(
+        grid: OccupancyGrid, time: TimeInterval, goalHeading: Float?, intentHeading: Float? = nil, tuning t: Tuning
+    ) -> (PlannerOutput, [GapCandidate]) {
         let dt = Float(lastTime.map { max(0, min(0.5, time - $0)) } ?? (1.0 / 30.0))
         lastTime = time
 
-        let straight = Self.march(grid: grid, angle: 0, tuning: t) { $0.isBlocking }
+        let blocking: (CellState) -> Int = { t.blockRequirement($0) }
+        let wide = t.corridorWidth + 2 * max(0, t.clearanceMargin)
+        let straight = Self.march(grid: grid, angle: 0, tuning: t, required: blocking)
         let span = t.headingSpanDegrees * .pi / 180
         let count = max(3, t.headingCount)
         let angles = (0..<count).map { -span + 2 * span * Float($0) / Float(count - 1) }
-        let marches = angles.map { Self.march(grid: grid, angle: $0, tuning: t) { $0.isBlocking } }
-        // A heading the camera has never seen is not a gap; it is just unknown.
+        let marches = angles.map { Self.march(grid: grid, angle: $0, tuning: t, required: blocking) }
+        let wideMarches = angles.map { Self.march(grid: grid, angle: $0, tuning: t, width: wide, required: blocking) }
+        // A heading the camera has never seen (and the map does not remember) is not a gap; it is just unknown.
         let frees = marches.map { $0.seen ? $0.free : 0 }
+        let wideFrees = zip(wideMarches, frees).map { march, free in march.seen ? min(march.free, free) : 0 }
         let smoothedFrees = Self.smooth(frees)
         let pathVisible = straight.seen || marches.contains { $0.seen }
 
         var output = PlannerOutput()
         output.pathVisible = pathVisible
+        output.goalHeading = goalHeading
+        output.intentHeading = goalHeading == nil ? intentHeading : nil
 
         guard pathVisible else {
             decay(dt: dt, tuning: t)
@@ -86,16 +113,23 @@ final class GapPlanner {
         }
 
         let goal = goalHeading.map { max(-span, min(span, $0)) }
+        let intent = goalHeading == nil ? intentHeading.map { max(-span, min(span, $0)) } : nil
+        let smoothedWide = Self.smooth(wideFrees)
         var candidates: [GapCandidate] = []
         for (i, angle) in angles.enumerated() {
             var score = smoothedFrees[i]
+            // A path that only fits by brushing a wall or a box is worse than one with room on both sides.
+            score -= t.clearanceWeight * max(0, smoothedFrees[i] - smoothedWide[i])
             // Prefer straight when the way ahead is clear; when it is blocked, any real gap is worth turning for.
             score -= t.turnPenalty * (1 - urgency) * abs(angle) / span
             score -= t.switchPenalty * abs(angle - lastTarget) / (2 * span)
+            // The user knows where they are going: lean toward the route, or toward the way they were walking.
             if let goal {
                 score -= t.goalWeight * (1 - urgency) * abs(angle - goal) / span
+            } else if let intent {
+                score -= t.intentWeight * (1 - urgency) * abs(angle - intent) / span
             }
-            candidates.append(GapCandidate(angle: angle, freeDistance: frees[i], score: score))
+            candidates.append(GapCandidate(angle: angle, freeDistance: frees[i], clearDistance: wideFrees[i], score: score))
         }
         let best = candidates.max { $0.score < $1.score }!
 
@@ -129,8 +163,8 @@ final class GapPlanner {
         smoothed += alpha * (target - smoothed)
         lastTarget = target
 
-        let drop = Self.march(grid: grid, angle: 0, tuning: t) { $0 == .dropOff }
-        let overhead = Self.march(grid: grid, angle: 0, tuning: t) { $0 == .overhead }
+        let drop = Self.march(grid: grid, angle: 0, tuning: t) { $0 == .dropOff ? max(1, t.dropMinCells) : 0 }
+        let overhead = Self.march(grid: grid, angle: 0, tuning: t) { $0 == .overhead ? 1 : 0 }
 
         output.heading = smoothed
         output.rawHeading = best.angle
@@ -169,13 +203,16 @@ final class GapPlanner {
         }
     }
 
-    /// Walks a corridor of `corridorWidth` along `angle` until a blocking cell, the edge of the grid,
-    /// or too much unseen space after the floor was last seen.
-    static func march(grid: OccupancyGrid, angle: Float, tuning t: Tuning, blocks: (CellState) -> Bool) -> March {
+    /// Walks a corridor (default `corridorWidth`) along `angle` until it is blocked, reaches the edge of the
+    /// grid, or crosses too much unseen space after the floor was last seen. `required` says how many distinct
+    /// cells of a state must sit across the corridor at one distance to block it (0: never blocks).
+    static func march(
+        grid: OccupancyGrid, angle: Float, tuning t: Tuning, width: Float? = nil, required: (CellState) -> Int
+    ) -> March {
         let s = sinf(angle), c = cosf(angle)
         // Half-cell steps, so rounding can never skip a row or column of cells.
         let step = grid.cellSize / 2
-        let half = t.corridorWidth / 2
+        let half = (width ?? t.corridorWidth) / 2
         let offsetCount = Int((2 * half / step).rounded())
         let offsets = (0...offsetCount).map { -half + Float($0) * step }
 
@@ -190,13 +227,19 @@ final class GapPlanner {
                 return March(free: distance, seen: seen, hit: nil)
             }
             var rowSeen = false
+            var visited: [Int] = []
+            var counts = [Int](repeating: 0, count: 5)
             for offset in offsets {
                 let f = distance * c - offset * s
                 let l = distance * s + offset * c
-                guard let i = grid.index(forward: f, lateral: l) else { continue }
+                guard let i = grid.index(forward: f, lateral: l), !visited.contains(i) else { continue }
+                visited.append(i)
                 let state = grid.cells[i].state
-                if blocks(state) { return March(free: distance, seen: true, hit: state) }
                 if state != .unknown { rowSeen = true }
+                let need = required(state)
+                guard need > 0 else { continue }
+                counts[Int(state.rawValue)] += 1
+                if counts[Int(state.rawValue)] >= need { return March(free: distance, seen: true, hit: state) }
             }
             if rowSeen {
                 seen = true

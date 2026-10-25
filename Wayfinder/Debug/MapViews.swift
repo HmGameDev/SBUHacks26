@@ -50,8 +50,16 @@ struct GridMapView: View {
                 context.stroke(ray, with: .color(.cyan.opacity(0.15 + 0.6 * Double(t))), lineWidth: 1.5)
             }
 
-            // Chosen heading.
+            // Route (Guided) or remembered walking direction (Passive), in blue.
             let p = snapshot.planner
+            if let goal = p.goalHeading ?? p.intentHeading {
+                var ray = Path()
+                ray.move(to: CGPoint(x: originX, y: originY))
+                ray.addLine(to: screen(forward: grid.forwardRange * cosf(goal), lateral: grid.forwardRange * sinf(goal)))
+                context.stroke(ray, with: .color(Theme.route), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            }
+
+            // Chosen heading.
             let length = p.straightFree ?? 2
             var arrow = Path()
             arrow.move(to: CGPoint(x: originX, y: originY))
@@ -112,6 +120,19 @@ struct SideMapView: View {
                 context.fill(path, with: .color(cls.color))
             }
 
+            // The profile the stair detector reads: median corridor height per 5 cm.
+            if snapshot.profile.count >= 2 {
+                var line = Path()
+                line.addLines(snapshot.profile.map { screen($0.x, $0.y) })
+                context.stroke(line, with: .color(.cyan), lineWidth: 1.5)
+            }
+            if let stairs = snapshot.planner.stairs {
+                context.draw(
+                    Text("Stairs \(stairs.direction.rawValue), \(stairs.steps) steps").font(.caption.bold()).foregroundStyle(.cyan),
+                    at: screen(stairs.distance, 0.3), anchor: .leading
+                )
+            }
+
             if let cameraHeight = snapshot.cameraHeight {
                 let c = screen(0, cameraHeight)
                 context.fill(Path(ellipseIn: CGRect(x: c.x, y: c.y - 5, width: 10, height: 10)), with: .color(.yellow))
@@ -130,7 +151,7 @@ struct MapTab: View {
         VStack(spacing: 4) {
             Text("Top-down grid").font(.caption.bold())
             GridMapView(snapshot: snapshot)
-            Text("Side view (points inside the walking corridor are colored)").font(.caption.bold())
+            Text("Side view (corridor points colored; cyan line is the stair profile)").font(.caption.bold())
             SideMapView(snapshot: snapshot, tuning: tuning)
                 .frame(height: 180)
             LegendRow(items: [

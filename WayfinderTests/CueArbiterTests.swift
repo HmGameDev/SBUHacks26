@@ -4,7 +4,10 @@ import XCTest
 final class CueArbiterTests: XCTestCase {
     let tuning = Tuning()
 
-    func planner(heading degrees: Float = 0, urgency: Float = 0, nearest: Float? = nil, drop: Float? = nil, overhead: Float? = nil) -> PlannerOutput {
+    func planner(
+        heading degrees: Float = 0, urgency: Float = 0, nearest: Float? = nil, drop: Float? = nil,
+        overhead: Float? = nil, stairs: StairInfo? = nil
+    ) -> PlannerOutput {
         var p = PlannerOutput()
         p.pathVisible = true
         p.heading = degrees * .pi / 180
@@ -12,6 +15,7 @@ final class CueArbiterTests: XCTestCase {
         p.nearestObstacle = nearest
         p.dropOffAhead = drop
         p.overheadAhead = overhead
+        p.stairs = stairs
         return p
     }
 
@@ -47,17 +51,32 @@ final class CueArbiterTests: XCTestCase {
         XCTAssertTrue(commands.contains(.haptic(.stopBuzz)))
     }
 
-    func testDropOffSaysStepDown() {
+    func testDropOffSaysStepDownOnceConfirmed() {
         let arbiter = CueArbiter()
-        let commands = arbiter.update(planner(drop: 1.2), now: 0, tuning: tuning)
+        XCTAssertTrue(spoken(arbiter.update(planner(drop: 1.0), now: 0, tuning: tuning)).isEmpty, "one frame is not enough")
+        let commands = arbiter.update(planner(drop: 1.0), now: 0.4, tuning: tuning)
         XCTAssertEqual(spoken(commands).first?.0.phrases, ["step_down"])
     }
 
-    func testOverheadSaysDuck() {
+    func testBriefDropOffIsIgnored() {
         let arbiter = CueArbiter()
-        let commands = arbiter.update(planner(overhead: 1.5), now: 0, tuning: tuning)
-        XCTAssertEqual(spoken(commands).first?.0.phrases, ["duck"])
-        XCTAssertTrue(commands.contains(.haptic(.doubleTap)))
+        _ = arbiter.update(planner(drop: 1.0), now: 0, tuning: tuning)
+        _ = arbiter.update(planner(), now: 0.1, tuning: tuning)
+        XCTAssertTrue(spoken(arbiter.update(planner(drop: 1.0), now: 0.35, tuning: tuning)).isEmpty)
+    }
+
+    func testOverheadIsNotSpoken() {
+        let arbiter = CueArbiter()
+        XCTAssertTrue(spoken(arbiter.update(planner(overhead: 1.5), now: 0, tuning: tuning)).isEmpty)
+    }
+
+    func testStairsAreAnnouncedInsteadOfStop() {
+        let arbiter = CueArbiter()
+        let stairs = StairInfo(direction: .up, distance: 1.5, steps: 3)
+        let commands = arbiter.update(planner(heading: 30, urgency: 0.95, nearest: 0.7, stairs: stairs), now: 0, tuning: tuning)
+        let speech = spoken(commands)
+        XCTAssertEqual(speech.first?.0.phrases, ["stairs_up"])
+        XCTAssertEqual(speech.count, 1, "no steering away from stairs")
     }
 
     func testQueuedSteerExpires() {
