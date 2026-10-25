@@ -14,6 +14,10 @@ struct Preferences: Codable, Equatable, Sendable {
     var hapticStrength: Float = 1.0
     /// Open the full-screen camera view after Start.
     var showCamera = false
+    /// Say what obstacles are ("Person, left"). Off until the blind-tester gate passes with it on.
+    var nameObstacles = false
+    /// Pasted in Settings; overrides `Secrets.plist`. Names obstacles the phone's detectors cannot.
+    var geminiKey = ""
     /// Read directions with the ElevenLabs voice when a key is set and the network answers in time.
     var useAIVoice = true
     /// Pasted in Settings; overrides `Secrets.plist`. Stays on this phone, never in git.
@@ -31,6 +35,8 @@ struct Preferences: Codable, Equatable, Sendable {
         cueVolume = try c.decodeIfPresent(Float.self, forKey: .cueVolume) ?? d.cueVolume
         hapticStrength = try c.decodeIfPresent(Float.self, forKey: .hapticStrength) ?? d.hapticStrength
         showCamera = try c.decodeIfPresent(Bool.self, forKey: .showCamera) ?? d.showCamera
+        nameObstacles = try c.decodeIfPresent(Bool.self, forKey: .nameObstacles) ?? d.nameObstacles
+        geminiKey = try c.decodeIfPresent(String.self, forKey: .geminiKey) ?? d.geminiKey
         useAIVoice = try c.decodeIfPresent(Bool.self, forKey: .useAIVoice) ?? d.useAIVoice
         elevenLabsKey = try c.decodeIfPresent(String.self, forKey: .elevenLabsKey) ?? d.elevenLabsKey
         elevenLabsVoiceID = try c.decodeIfPresent(String.self, forKey: .elevenLabsVoiceID) ?? d.elevenLabsVoiceID
@@ -74,6 +80,8 @@ enum Secrets {
 
     static var elevenLabsKey: String? { values["ELEVENLABS_API_KEY"].flatMap { $0.isEmpty ? nil : $0 } }
     static var elevenLabsVoiceID: String? { values["ELEVENLABS_VOICE_ID"].flatMap { $0.isEmpty ? nil : $0 } }
+    static var geminiKey: String? { values["GEMINI_API_KEY"].flatMap { $0.isEmpty ? nil : $0 } }
+    static var geminiModel: String? { values["GEMINI_MODEL"].flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 enum Voices {

@@ -20,6 +20,15 @@ struct PlannerOutput: Sendable, Equatable {
     /// Every direction is blocked close by.
     var blocked = false
     var reason = ""
+    /// Identification: the confirmed name of the obstacle the planner is reacting to, and its track id.
+    var nearestLabel: ObstacleLabel?
+    var nearestLabelTrack: Int?
+    /// Identification: a Gemini name for the obstacle in the path when the phone could not name it.
+    /// `nearestLabelTrack` then holds the cloud spot's id.
+    var nearestCloudName: String?
+    var nearestCloudHazard = false
+    /// Identification: named hazards just outside the walking corridor, nearest first.
+    var sideLabels: [SideLabel] = []
 
     static let idle = PlannerOutput(reason: "Idle")
 }

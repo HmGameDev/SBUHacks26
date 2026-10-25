@@ -36,4 +36,6 @@ struct FrameBundle: Sendable {
     /// World-from-camera transform. ARKit convention: the camera looks down its -Z axis.
     let cameraTransform: simd_float4x4
     let trackingNormal: Bool
+    /// Small color frame for the obstacle detector, live capture only. Never recorded; replays decode `colorJPEG`.
+    var colorImage: ColorImage? = nil
 }

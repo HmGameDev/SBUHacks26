@@ -17,11 +17,6 @@ enum CellState: UInt8, Sendable {
     }
 }
 
-/// Reserved for obstacle identification (section 8 of the foundation prompt). Never populated yet.
-enum ObstacleLabel: String, Sendable, CaseIterable {
-    case unknown, person, pole, vehicle, bicycle, furniture, door
-}
-
 struct GridCell: Sendable {
     var state: CellState = .unknown
     var minHeight: Float = .infinity
@@ -29,7 +24,6 @@ struct GridCell: Sendable {
     var hits: UInt16 = 0
     /// True when the drop-off came from missing floor rather than points below the floor.
     var inferred = false
-    var label: ObstacleLabel?
 }
 
 /// Where a point sits relative to the floor.

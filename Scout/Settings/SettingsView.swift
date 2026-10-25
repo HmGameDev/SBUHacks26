@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var showKey = false
+    @State private var showGeminiKey = false
 
     private var voices: [AVSpeechSynthesisVoice] { Voices.english }
 
@@ -20,7 +21,7 @@ struct SettingsView: View {
                     ForEach(Verbosity.allCases) { level in
                         Button {
                             model.verbosity = level
-                            feedback.preview(phrases: Self.example(for: level))
+                            feedback.preview(phrases: Self.example(for: level, naming: store.preferences.nameObstacles))
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -144,6 +145,34 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Name obstacles", isOn: $store.preferences.nameObstacles)
+                        .tint(Theme.accent)
+                        .onChange(of: store.preferences.nameObstacles) {
+                            if store.preferences.nameObstacles { feedback.preview(phrases: ["label_person", "left"]) }
+                        }
+                    HStack {
+                        Group {
+                            if showGeminiKey {
+                                TextField("Gemini API key (optional)", text: $store.preferences.geminiKey)
+                            } else {
+                                SecureField("Gemini API key (optional)", text: $store.preferences.geminiKey)
+                            }
+                        }
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        Button { showGeminiKey.toggle() } label: {
+                            Image(systemName: showGeminiKey ? "eye.slash" : "eye")
+                        }
+                        .accessibilityLabel(showGeminiKey ? "Hide key" : "Show key")
+                    }
+                    Text(geminiStatus(store.preferences)).font(.footnote).foregroundStyle(.secondary)
+                } header: {
+                    Text("Obstacle names (testing)")
+                } footer: {
+                    Text("Says what is in your way, like \"Door. Left.\" The phone names people, doors, furniture, vehicles, and poles on its own, with no network. With a Gemini key, things it cannot name are sent as a photo to Google while still a few meters away. Names are only given to things the depth sensor already sees, so Stop never waits for one. Off by default while it is being tested. Uses more battery.")
+                }
+
+                Section {
                     Toggle("Open camera view after Start", isOn: $store.preferences.showCamera)
                         .tint(Theme.accent)
                 } footer: {
@@ -171,11 +200,17 @@ struct SettingsView: View {
         return "No key yet: directions use the iPhone voice."
     }
 
-    static func example(for level: Verbosity) -> [String] {
+    private func geminiStatus(_ prefs: Preferences) -> String {
+        if !prefs.geminiKey.trimmingCharacters(in: .whitespaces).isEmpty { return "Gemini: using the key entered here." }
+        if Secrets.geminiKey != nil { return "Gemini: using the key built into this copy of the app." }
+        return "No Gemini key: only names the phone knows."
+    }
+
+    static func example(for level: Verbosity, naming: Bool) -> [String] {
         switch level {
         case .minimal: ["stop"]
-        case .normal: ["left"]
-        case .chatty: ["left", "dist_2"]
+        case .normal: naming ? ["label_person", "left"] : ["left"]
+        case .chatty: naming ? ["label_person", "left", "dist_2"] : ["left", "dist_2"]
         }
     }
 

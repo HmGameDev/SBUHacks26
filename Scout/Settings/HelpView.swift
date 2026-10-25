@@ -13,6 +13,8 @@ struct HelpView: View {
         let icon: String
         let meaning: String
         let haptic: HapticEvent?
+        /// What the play button says; the cue itself unless an example needs more.
+        var phrases: [String]? = nil
     }
 
     private let cues: [Entry] = [
@@ -25,6 +27,16 @@ struct HelpView: View {
         Entry(id: "right", icon: "arrow.turn.up.right", meaning: "The clearest way around is to your right.", haptic: nil),
         Entry(id: "slight_right", icon: "arrow.up.right", meaning: "Bear a little to the right.", haptic: nil),
         Entry(id: "clear", icon: "checkmark.circle", meaning: "The way ahead is open again (Chatty only).", haptic: nil),
+    ]
+
+    private let names: [Entry] = [
+        Entry(id: "label_person", icon: "figure.walk", meaning: "A person in your way, then which way to go: \"Person. Left.\"", haptic: nil,
+              phrases: ["label_person", "left"]),
+        Entry(id: "label_pole", icon: "cylinder", meaning: "A pole, post, or sign pole in your way.", haptic: nil,
+              phrases: ["label_pole", "slight_right"]),
+        Entry(id: "label_dog", icon: "pawprint", meaning: "A dog in your way.", haptic: nil),
+        Entry(id: "on_left", icon: "arrow.left.circle", meaning: "Chatty only: someone just beside your path, not in it.", haptic: nil,
+              phrases: ["label_person", "on_left"]),
     ]
 
     var body: some View {
@@ -45,28 +57,19 @@ struct HelpView: View {
         let feedback = model.feedback
         return List {
             Section {
-                ForEach(cues) { cue in
-                    Button {
-                        feedback.preview(phrases: [cue.id])
-                        if let haptic = cue.haptic { feedback.preview(haptic: haptic) }
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: cue.icon).font(.title2).frame(width: 36).foregroundStyle(Theme.accent)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(CuePhrases.shared.text(for: cue.id)).font(.headline)
-                                Text(cue.meaning).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "play.circle").font(.title2)
-                        }
-                    }
-                    .foregroundStyle(.primary)
-                    .accessibilityHint("Plays this cue")
-                }
+                ForEach(cues) { row($0, feedback: feedback) }
             } header: {
                 Text("Tap to hear each cue")
             } footer: {
                 Text("A repeating tap that speeds up means something is getting closer. Silence means the way is clear.")
+            }
+
+            Section {
+                ForEach(names) { row($0, feedback: feedback) }
+            } header: {
+                Text("Obstacle names")
+            } footer: {
+                Text("Only with Name obstacles turned on in Settings. Normal names people, dogs, poles, doors, bikes, cars, and trees in your way. Chatty also names furniture like tables, desks, and chairs, and people beside your path. With a Gemini key, other things farther away get a name too. A name is said once per object.")
             }
 
             Section("Before you walk") {
@@ -91,5 +94,24 @@ struct HelpView: View {
         }
         .navigationTitle("What the sounds mean")
         .onAppear { feedback.start() }
+    }
+
+    private func row(_ cue: Entry, feedback: FeedbackEngine) -> some View {
+        Button {
+            feedback.preview(phrases: cue.phrases ?? [cue.id])
+            if let haptic = cue.haptic { feedback.preview(haptic: haptic) }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: cue.icon).font(.title2).frame(width: 36).foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text((cue.phrases ?? [cue.id]).map { CuePhrases.shared.text(for: $0) }.joined(separator: " ")).font(.headline)
+                    Text(cue.meaning).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "play.circle").font(.title2)
+            }
+        }
+        .foregroundStyle(.primary)
+        .accessibilityHint("Plays this cue")
     }
 }

@@ -37,11 +37,32 @@ struct PerceptionResult: Sendable {
     let goalPath: [SIMD2<Float>]
     /// Corridor side profile used for stair detection: (forward, median height) per bin.
     let profile: [SIMD2<Float>]
+    /// Confirmed obstacle names, drawn about 1 m above the floor at their tracked spot.
+    let labelMarks: [LabelMark]
+    /// An unnamed obstacle far enough ahead to ask Gemini about (identification only).
+    let cloudRequest: CloudRequest?
+}
+
+struct CloudRequest: Sendable, Equatable {
+    /// World x, z of the obstacle.
+    let spot: SIMD2<Float>
+    let distance: Float
+}
+
+/// A confirmed name for the camera overlay.
+struct LabelMark: Sendable, Equatable {
+    let text: String
+    /// Depth-image pixel.
+    let pixel: SIMD2<Float>
+    /// This is the obstacle the planner is reacting to.
+    let isNearest: Bool
 }
 
 /// Frame in, guidance out. Pure apart from its own state, so replaying the same frames gives the same output.
 final class PerceptionPipeline {
     var tuning = Tuning()
+    /// Name obstacles (Settings > Name obstacles). Off: no pole search and no labels, so output is as before.
+    var identify = false
     private var floor = FloorEstimator()
     private var map = WorldMap(cellSize: Tuning().cellSize)
     private let planner = GapPlanner()
@@ -51,6 +72,17 @@ final class PerceptionPipeline {
     private var lastTime: TimeInterval?
     private var stairsSince: TimeInterval?
     private var lastStairs: StairInfo?
+    private var visionTracks = LabelTracker(rules: Tuning().visionLabelRules, firstID: 1)
+    private var poleTracks = LabelTracker(rules: Tuning().poleLabelRules, firstID: 1_000_000)
+    private struct CloudSpot {
+        let id: Int
+        let position: SIMD2<Float>
+        let name: CloudName
+        let time: TimeInterval
+    }
+    private var cloudSpots: [CloudSpot] = []
+    private var cloudAsked: [(spot: SIMD2<Float>, time: TimeInterval)] = []
+    private var nextCloudID = 2_000_000
 
     private let maxDebugPoints = 4000
 
@@ -63,6 +95,29 @@ final class PerceptionPipeline {
         lastTime = nil
         stairsSince = nil
         lastStairs = nil
+        visionTracks.reset()
+        poleTracks.reset()
+        cloudSpots.removeAll()
+        cloudAsked.removeAll()
+        nextCloudID = 2_000_000
+    }
+
+    /// The runner sent `spot` to Gemini; do not ask about it again for `cloudRetrySeconds`.
+    func noteCloudAsked(_ spot: SIMD2<Float>, time: TimeInterval) {
+        cloudAsked.append((spot, time))
+    }
+
+    /// Gemini's answer for a spot, or nil when it could not tell.
+    func ingestCloud(_ name: CloudName?, at spot: SIMD2<Float>, time: TimeInterval) {
+        guard let name else { return }
+        cloudSpots.append(CloudSpot(id: nextCloudID, position: spot, name: name, time: time))
+        nextCloudID += 1
+    }
+
+    /// One detector run, already placed in the world by `LabelFusion`.
+    func ingest(_ detections: [Detection], time: TimeInterval) {
+        visionTracks.rules = tuning.visionLabelRules
+        visionTracks.ingest(detections, time: time)
     }
 
     func process(_ frame: FrameBundle, goalHeading: Float?, wantDebug: Bool) -> PerceptionResult {
@@ -75,7 +130,8 @@ final class PerceptionPipeline {
             return PerceptionResult(
                 timestamp: frame.timestamp, planner: output, candidates: [], grid: OccupancyGrid(tuning: t),
                 floorStatus: floor.status, cameraHeight: floor.cameraHeight(cameraY: cameraY), bodyYaw: nil,
-                trackingNormal: frame.trackingNormal, points: [], corridor: [], headingPath: [], goalPath: [], profile: []
+                trackingNormal: frame.trackingNormal, points: [], corridor: [], headingPath: [], goalPath: [], profile: [],
+                labelMarks: [], cloudRequest: nil
             )
         }
 
@@ -238,12 +294,62 @@ final class PerceptionPipeline {
             output.stairs = stairs
         }
 
+        // 6b. Identification: name the obstacle the planner is reacting to, and hazards beside the path.
+        var named: [LabelTrack] = []
+        var cloudRequest: CloudRequest?
+        if identify {
+            poleTracks.rules = t.poleLabelRules
+            let poles = PoleDetector.detect(grid, tuning: t).map { pole in
+                Detection(
+                    label: .pole, confidence: 1, rect: .zero,
+                    world: body.world(forward: pole.forward, lateral: pole.lateral, y: floorY + 1.0)
+                )
+            }
+            poleTracks.ingest(poles, time: frame.timestamp)
+            visionTracks.rules = t.visionLabelRules
+            visionTracks.expire(time: frame.timestamp)
+            // A person standing side-on looks like a pole to the grid. Wherever Vision saw something lately, it wins.
+            let recent = visionTracks.tracks.filter { frame.timestamp - $0.lastDetected <= 1 }
+            let poleNames = poleTracks.confirmed.filter { pole in
+                !recent.contains { simd_distance($0.position, pole.position) < 0.6 }
+            }
+            named = visionTracks.confirmed + poleNames
+            let labels = LabelQuery.evaluate(named, body: body, grid: grid, planner: output, tuning: t)
+            output.nearestLabel = labels.nearest?.label
+            output.nearestLabelTrack = labels.nearest?.id
+            output.sideLabels = labels.side
+
+            // Gemini names, only for what the phone could not name.
+            let now = frame.timestamp
+            cloudSpots.removeAll { now - $0.time > t.cloudHoldSeconds || now < $0.time }
+            cloudAsked.removeAll { now - $0.time > t.cloudRetrySeconds || now < $0.time }
+            let cloudInPath = cloudSpots.compactMap { spot in
+                LabelQuery.inPath(spot.position, body: body, grid: grid, planner: output, tuning: t).map { (spot: spot, forward: $0) }
+            }
+            if labels.nearest == nil, let spot = cloudInPath.min(by: { $0.forward < $1.forward })?.spot {
+                output.nearestCloudName = spot.name.name
+                output.nearestCloudHazard = spot.name.hazard
+                output.nearestLabelTrack = spot.id
+            }
+            // Ask early, while the obstacle is still far enough away for the answer to arrive in time.
+            if let ahead = output.nearestObstacle, ahead > t.cloudMinDistance, ahead < t.maxRange - 0.2 {
+                let world = body.world(forward: ahead, lateral: 0, y: 0)
+                let spot = SIMD2(world.x, world.z)
+                let known = named.contains { simd_distance($0.position, spot) < 0.8 }
+                    || visionTracks.tracks.contains { simd_distance($0.position, spot) < 0.8 }
+                    || cloudSpots.contains { simd_distance($0.position, spot) < 0.8 }
+                    || cloudAsked.contains { simd_distance($0.spot, spot) < 1.0 }
+                if !known { cloudRequest = CloudRequest(spot: spot, distance: ahead) }
+            }
+        }
+
         // 7. Debug geometry.
         var debugPoints: [PointSample] = []
         var corridor: [SIMD2<Float>] = []
         var headingPath: [SIMD2<Float>] = []
         var goalPath: [SIMD2<Float>] = []
         var profilePoints: [SIMD2<Float>] = []
+        var labelMarks: [LabelMark] = []
         if wantDebug {
             for i in points.indices where points[i].cls == .obstacle {
                 let index = cellIndex[i]
@@ -278,6 +384,15 @@ final class PerceptionPipeline {
             profilePoints = profile.enumerated().compactMap { i, h in
                 h.map { SIMD2(profileStart + (Float(i) + 0.5) * StairDetector.binSize, $0) }
             }
+            let marks: [(id: Int, text: String, spot: SIMD2<Float>)] =
+                named.compactMap { track in track.label.map { (track.id, $0.rawValue, track.position) } }
+                + cloudSpots.map { ($0.id, $0.name.name.lowercased(), $0.position) }
+            labelMarks = marks.compactMap { mark in
+                let world = SIMD3(mark.spot.x, floorY + 1.0, mark.spot.y)
+                return Geometry.project(world: world, worldToCamera: worldToCamera, intrinsics: frame.intrinsics).map {
+                    LabelMark(text: mark.text, pixel: $0, isNearest: mark.id == output.nearestLabelTrack)
+                }
+            }
         }
 
         return PerceptionResult(
@@ -293,7 +408,9 @@ final class PerceptionPipeline {
             corridor: corridor,
             headingPath: headingPath,
             goalPath: goalPath,
-            profile: profilePoints
+            profile: profilePoints,
+            labelMarks: labelMarks,
+            cloudRequest: cloudRequest
         )
     }
 
