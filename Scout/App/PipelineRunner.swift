@@ -29,6 +29,8 @@ struct DebugSnapshot: Sendable {
     let detections: [Detection]
     /// Confirmed names at their tracked spots (identification only).
     let labelMarks: [LabelMark]
+    /// Two lines for the camera view: detector health and why the obstacle ahead is or is not named.
+    var namingStatus: [String] = []
 }
 
 /// Owns the pipeline queue: frame source in, perception, optional recording, results out.
@@ -59,6 +61,7 @@ final class PipelineRunner {
     /// Bumped whenever a source attaches, so a detector run from an earlier session is thrown away.
     private var classifierGeneration = 0
     private var lastDetections: [Detection] = []
+    private var detectorStatus = ""
     private let cloud = CloudNamer()
     private var cloudBusy = false
     private var lastCloudAsk: TimeInterval = -.infinity
@@ -228,7 +231,8 @@ final class PipelineRunner {
                 frameCount: frameCount,
                 recordingFrames: recorder?.frameCount,
                 detections: lastDetections,
-                labelMarks: result.labelMarks
+                labelMarks: result.labelMarks,
+                namingStatus: options.identify ? [detectorStatus, result.labelStatus] : ["Name obstacles is off in Settings"]
             )
         }
         onResult?(result, snapshot)
@@ -252,19 +256,33 @@ final class PipelineRunner {
         }
         if isReplay {
             // Inline, so replaying a recording gives the same names every time.
-            deliver(classifierQueue.sync(execute: work), time: frame.timestamp)
+            let detections = classifierQueue.sync(execute: work)
+            detectorStatus = classifierQueue.sync { Self.detectorStatus(classifier, detections: detections) }
+            deliver(detections, time: frame.timestamp)
             return
         }
         classifying = true
         let generation = classifierGeneration
         classifierQueue.async {
             let detections = work()
+            let status = Self.detectorStatus(classifier, detections: detections)
             self.queue.async {
                 self.classifying = false
+                self.detectorStatus = status
                 guard generation == self.classifierGeneration else { return }
                 self.deliver(detections, time: frame.timestamp)
             }
         }
+    }
+
+    /// Called on the classifier queue, right after a run.
+    private static func detectorStatus(_ classifier: VisionClassifier, detections: [Detection]) -> String {
+        if let error = classifier.lastError { return "Detector error: \(error)" }
+        var parts = [classifier.hasObjectModel ? "Model loaded" : "Furniture model missing from the app"]
+        let placed = detections.filter { $0.world != nil }.count
+        parts.append("\(detections.count) named boxes, \(placed) with depth")
+        if !classifier.lastObjectGuesses.isEmpty { parts.append(classifier.lastObjectGuesses.joined(separator: ", ")) }
+        return parts.joined(separator: " · ")
     }
 
     /// Asks Gemini about an unnamed obstacle that is still far away. Live only: replays stay offline and repeatable.

@@ -29,6 +29,8 @@ struct PlannerOutput: Sendable, Equatable {
     var nearestCloudHazard = false
     /// Identification: named hazards just outside the walking corridor, nearest first.
     var sideLabels: [SideLabel] = []
+    /// Identification: a confirmed doorway ahead (depth only).
+    var doorway: DoorwayInfo?
 
     static let idle = PlannerOutput(reason: "Idle")
 }

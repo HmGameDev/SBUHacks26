@@ -10,12 +10,11 @@ final class IdentificationTests: XCTestCase {
 
     func testTiersDecideWhoHearsAName() {
         XCTAssertTrue(ObstacleLabel.person.isSpoken(at: .normal))
-        XCTAssertTrue(ObstacleLabel.pole.isSpoken(at: .normal))
-        XCTAssertFalse(ObstacleLabel.chair.isSpoken(at: .normal))
+        XCTAssertTrue(ObstacleLabel.desk.isSpoken(at: .normal), "Normal names everything in the way")
         XCTAssertTrue(ObstacleLabel.chair.isSpoken(at: .chatty))
         XCTAssertFalse(ObstacleLabel.person.isSpoken(at: .minimal))
-        XCTAssertTrue(ObstacleLabel.door.isSpoken(at: .normal), "doors matter for finding the way")
-        XCTAssertFalse(ObstacleLabel.desk.isSpoken(at: .normal))
+        XCTAssertEqual(ObstacleLabel.door.tier, .hazard)
+        XCTAssertEqual(ObstacleLabel.desk.tier, .common)
         XCTAssertEqual(ObstacleLabel.trashCan.phrase, "label_trash_can")
     }
 
@@ -51,9 +50,18 @@ final class IdentificationTests: XCTestCase {
         let url = try XCTUnwrap(Bundle(for: CueArbiter.self).url(forResource: "phrases", withExtension: "json"))
         let text = try String(contentsOf: url)
         for label in ObstacleLabel.allCases {
-            XCTAssertTrue(text.contains("\"\(label.phrase)\""), "phrases.json is missing \(label.phrase)")
+            for id in [label.phrase, label.aheadPhrase, label.nearPhrase] {
+                XCTAssertTrue(text.contains("\"\(id)\""), "phrases.json is missing \(id)")
+            }
         }
-        XCTAssertTrue(text.contains("\"on_left\"") && text.contains("\"on_right\""))
+        for direction in ["left", "right", "slight_left", "slight_right"] {
+            for id in ["go_" + direction, "go_" + direction + "_alt", "way_" + direction] {
+                XCTAssertTrue(text.contains("\"\(id)\""), "phrases.json is missing \(id)")
+            }
+        }
+        for id in ["way_straight", "beside_left", "beside_right"] {
+            XCTAssertTrue(text.contains("\"\(id)\""), "phrases.json is missing \(id)")
+        }
     }
 
     // MARK: - Vision boxes
@@ -208,6 +216,42 @@ final class IdentificationTests: XCTestCase {
         // Something blocking two cells to its right, not touching it.
         setObstacle(&grid, forward: 2.05, lateral: 0.25, top: 0.5)
         XCTAssertTrue(PoleDetector.detect(grid, tuning: tuning).isEmpty)
+    }
+
+    // MARK: - Doorways
+
+    /// A wall across the path at 2 m with an opening `2 * half` wide in the middle.
+    func wallWithOpening(half: Float) -> OccupancyGrid {
+        var grid = floorGrid()
+        for k in 0..<grid.cols {
+            let lateral = grid.center(col: k, row: 0).lateral
+            if abs(lateral) >= half { setObstacle(&grid, forward: 2.05, lateral: lateral, top: 2.0) }
+        }
+        return grid
+    }
+
+    func testOpeningInAWallIsADoorway() {
+        let doors = DoorwayDetector.detect(wallWithOpening(half: 0.5), tuning: tuning)
+        XCTAssertEqual(doors.count, 1)
+        XCTAssertEqual(doors.first?.lateral ?? 9, 0, accuracy: 0.06)
+        XCTAssertEqual(doors.first?.forward ?? 0, 2.0, accuracy: 0.11)
+        XCTAssertEqual(doors.first?.width ?? 0, 1.0, accuracy: 0.01)
+    }
+
+    func testWideGapIsNotADoorway() {
+        XCTAssertTrue(DoorwayDetector.detect(wallWithOpening(half: 1.0), tuning: tuning).isEmpty)
+    }
+
+    func testBlockedOpeningIsNotADoorway() {
+        var grid = wallWithOpening(half: 0.5)
+        setObstacle(&grid, forward: 2.05, lateral: 0.05, top: 0.8)
+        XCTAssertTrue(DoorwayDetector.detect(grid, tuning: tuning).isEmpty)
+    }
+
+    func testPlainWallIsNotADoorway() {
+        var grid = floorGrid()
+        for k in 0..<12 { setObstacle(&grid, forward: 2.05, lateral: -0.55 + Float(k) * 0.1, top: 2.0) }
+        XCTAssertTrue(DoorwayDetector.detect(grid, tuning: tuning).isEmpty)
     }
 
     // MARK: - Query

@@ -19,8 +19,10 @@ struct CueLogEntry: Identifiable, Sendable {
 /// - Stop and Overhead interrupt anything lower, mid-word.
 /// - Lower tiers queue and expire (`queueExpiry`; status and guided cues get longer).
 /// - Silence means clear.
-/// - Obstacle names ride on Stop and steer cues and never add an interruption of their own. Chatty's
-///   side mentions ("Person on your left") play only when nothing else is being said.
+/// - Obstacle names ride on Stop and steer cues and never add an interruption of their own. A named cue is a
+///   short, kind sentence ("There's a door just ahead, keep a little to your left."); Stop itself stays one
+///   word and plays first. Doorways and Chatty's side mentions ("A person is just off to your left.") play
+///   only when nothing else is being said.
 final class CueArbiter {
     var verbosity: Verbosity = .normal
     private(set) var log: [CueLogEntry] = []
@@ -46,6 +48,9 @@ final class CueArbiter {
     private var labelSpoken: [Int: TimeInterval] = [:]
     private var labelInPath: [Int: TimeInterval] = [:]
     private var lastSideMention: TimeInterval = -.infinity
+    /// Alternates the wording of named steer cues, so the same sentence does not repeat word for word.
+    private var variant = 0
+    private var doorwaySpoken: [Int: TimeInterval] = [:]
     private let maxLog = 300
     private let longExpiry: TimeInterval = 8
 
@@ -61,6 +66,8 @@ final class CueArbiter {
         labelSpoken.removeAll()
         labelInPath.removeAll()
         lastSideMention = -.infinity
+        variant = 0
+        doorwaySpoken.removeAll()
         let hadPulse = lastPulse != nil
         lastPulse = nil
         return hadPulse ? [.pulse(interval: nil)] : []
@@ -96,7 +103,7 @@ final class CueArbiter {
             safety = ("step_down", Cue(tier: .stop, phrases: ["step_down"], haptic: .stopBuzz), String(format: "drop-off %.1fm", d))
         } else if p.blocked || (p.pathVisible && p.urgency >= t.stopUrgency) {
             // The name follows Stop as a second clip, so the time to the first sound does not change.
-            safety = ("stop", Cue(tier: .stop, phrases: ["stop"] + (name.map { [$0.phrase] } ?? []), haptic: .stopBuzz),
+            safety = ("stop", Cue(tier: .stop, phrases: ["stop"] + (name.map { [Self.nearPhrase($0.kind)] } ?? []), haptic: .stopBuzz),
                       String(format: "urgency %.2f", p.urgency))
         }
 
@@ -132,9 +139,15 @@ final class CueArbiter {
             if key != lastSteerKey || now - lastSteerTime >= t.repeatInterval {
                 lastSteerKey = key
                 lastSteerTime = now
-                // What it is, then which way to go.
-                var phrases = (name.map { [$0.phrase] } ?? []) + [key]
-                if verbosity == .chatty, let nearest = p.nearestObstacle {
+                // What it is, then which way to go, as one sentence. Without a name it stays one quick word.
+                var phrases = [key]
+                if let name {
+                    phrases = Self.steerPhrases(name.kind, key: key, variant: variant)
+                    variant += 1
+                }
+                // A Gemini sentence is one on-device utterance; a bundled distance clip after it would switch voices.
+                let spokenWhole = phrases.count == 1 && phrases[0].hasPrefix(CuePhrases.sayPrefix)
+                if verbosity == .chatty, !spokenWhole, let nearest = p.nearestObstacle {
                     let meters = max(1, min(4, Int(nearest.rounded())))
                     phrases.append("dist_\(meters)")
                 }
@@ -166,8 +179,18 @@ final class CueArbiter {
            let side = p.sideLabels.first(where: { labelSpoken[$0.track].map { now - $0 >= t.labelRepeatSeconds } ?? true }) {
             lastSideMention = now
             labelSpoken[side.track] = now
-            let cue = Cue(tier: .status, phrases: [side.label.phrase, side.onLeft ? "on_left" : "on_right"])
+            let cue = Cue(tier: .status, phrases: [side.label.phrase, side.onLeft ? "beside_left" : "beside_right"])
             commands += emit(cue, now: now, tuning: t, reason: String(format: "%@ beside path at %.1fm", side.label.rawValue, side.distance))
+        }
+
+        // A doorway ahead, once per doorway, when nothing else is being said. It is a way through, not an
+        // obstacle, so it never rides on Stop or steer.
+        if verbosity != .minimal, safety == nil, steerKey == nil, !isSpeaking, let door = p.doorway,
+           doorwaySpoken[door.track].map({ now - $0 >= t.doorwayRepeatSeconds }) ?? true {
+            doorwaySpoken[door.track] = now
+            if doorwaySpoken.count > 32 { doorwaySpoken = doorwaySpoken.filter { now - $0.value < 120 } }
+            let cue = Cue(tier: .status, phrases: ["ahead_doorway", Self.doorwayTail(door, tuning: t)])
+            commands += emit(cue, now: now, tuning: t, reason: String(format: "doorway at %.1fm, %+.1fm", door.forward, door.lateral))
         }
 
         // Proximity pulse: faster as the obstacle ahead gets closer.
@@ -202,18 +225,24 @@ final class CueArbiter {
 
     // MARK: - Policy
 
+    enum NameKind: Equatable {
+        /// Bundled sentence pieces in the cue voice.
+        case label(ObstacleLabel)
+        /// A Gemini name; the whole sentence is spoken with the iPhone voice so it does not switch voices midway.
+        case cloud(String)
+    }
+
     /// The name to add to this frame's Stop or steer cue, if any: spoken at this verbosity, and not already said
     /// for this object in the last `labelRepeatSeconds` unless it left the path for 3 s and came back.
-    /// A phone label plays its bundled clip; a Gemini name is spoken with the iPhone voice.
-    private func obstacleName(_ p: PlannerOutput, now: TimeInterval, tuning t: Tuning) -> (track: Int, phrase: String)? {
+    private func obstacleName(_ p: PlannerOutput, now: TimeInterval, tuning t: Tuning) -> (track: Int, kind: NameKind)? {
         guard let track = p.nearestLabelTrack else { return nil }
-        let phrase: String
+        let kind: NameKind
         let tier: LabelTier
         if let label = p.nearestLabel {
-            phrase = label.phrase
+            kind = .label(label)
             tier = label.tier
         } else if let name = p.nearestCloudName {
-            phrase = CuePhrases.sayPrefix + name
+            kind = .cloud(name)
             tier = p.nearestCloudHazard ? .hazard : .common
         } else {
             return nil
@@ -226,12 +255,45 @@ final class CueArbiter {
         }
         guard tier.isSpoken(at: verbosity) else { return nil }
         if let spoken = labelSpoken[track], now - spoken < t.labelRepeatSeconds, !returning { return nil }
-        return (track, phrase)
+        return (track, kind)
+    }
+
+    /// After Stop: "There's a door right in front of you."
+    static func nearPhrase(_ kind: NameKind) -> String {
+        switch kind {
+        case .label(let label): label.nearPhrase
+        case .cloud(let name): CuePhrases.sayPrefix + "There's \(withArticle(name)) right in front of you."
+        }
+    }
+
+    /// "There's a door just ahead," then "keep a little to your left." The direction wording alternates.
+    static func steerPhrases(_ kind: NameKind, key: String, variant: Int) -> [String] {
+        let tail = "go_" + key + (variant % 2 == 1 ? "_alt" : "")
+        switch kind {
+        case .label(let label):
+            return [label.aheadPhrase, tail]
+        case .cloud(let name):
+            return [CuePhrases.sayPrefix + "There's \(withArticle(name)) just ahead, " + CuePhrases.shared.text(for: tail)]
+        }
+    }
+
+    /// "a recycling bin", "an umbrella".
+    static func withArticle(_ name: String) -> String {
+        let noun = name.lowercased()
+        let vowel = noun.first.map { "aeiou".contains($0) } ?? false
+        return (vowel ? "an " : "a ") + noun
+    }
+
+    static func doorwayTail(_ door: DoorwayInfo, tuning t: Tuning) -> String {
+        let degrees = atan2(door.lateral, max(0.1, door.forward)) * 180 / .pi
+        if abs(degrees) < t.doorwayStraightDegrees { return "way_straight" }
+        let side = degrees < 0 ? "left" : "right"
+        return abs(degrees) < t.doorwaySlightDegrees ? "way_slight_" + side : "way_" + side
     }
 
     /// Call after emitting a cue that carried `name`. A dropped cue still counts; the name comes back with the
     /// next repeat of the cue only after `labelRepeatSeconds`, which is the price of never stuttering.
-    private func markNamed(_ name: (track: Int, phrase: String)?, now: TimeInterval) {
+    private func markNamed(_ name: (track: Int, kind: NameKind)?, now: TimeInterval) {
         guard let name else { return }
         labelSpoken[name.track] = now
     }

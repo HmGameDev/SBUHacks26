@@ -148,7 +148,7 @@ struct SettingsView: View {
                     Toggle("Name obstacles", isOn: $store.preferences.nameObstacles)
                         .tint(Theme.accent)
                         .onChange(of: store.preferences.nameObstacles) {
-                            if store.preferences.nameObstacles { feedback.preview(phrases: ["label_person", "left"]) }
+                            if store.preferences.nameObstacles { feedback.preview(phrases: ["ahead_door", "go_left"]) }
                         }
                     HStack {
                         Group {
@@ -169,7 +169,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Obstacle names (testing)")
                 } footer: {
-                    Text("Says what is in your way, like \"Door. Left.\" The phone names people, doors, furniture, vehicles, and poles on its own, with no network. With a Gemini key, things it cannot name are sent as a photo to Google while still a few meters away. Names are only given to things the depth sensor already sees, so Stop never waits for one. Off by default while it is being tested. Uses more battery.")
+                    Text("Says what is in your way in a short sentence, like \"There's a door just ahead, step left to go around it.\" It also points out open doorways. The phone names people, doors, furniture, vehicles, and poles on its own, with no network. With a Gemini key, things it cannot name are sent as a photo to Google while still a few meters away. Names are only given to things the depth sensor already sees, so Stop never waits for one. Off by default while it is being tested. Uses more battery.")
                 }
 
                 Section {
@@ -209,8 +209,8 @@ struct SettingsView: View {
     static func example(for level: Verbosity, naming: Bool) -> [String] {
         switch level {
         case .minimal: ["stop"]
-        case .normal: naming ? ["label_person", "left"] : ["left"]
-        case .chatty: naming ? ["label_person", "left", "dist_2"] : ["left", "dist_2"]
+        case .normal: naming ? ["ahead_person", "go_left"] : ["left"]
+        case .chatty: naming ? ["ahead_person", "go_left", "dist_2"] : ["left", "dist_2"]
         }
     }
 

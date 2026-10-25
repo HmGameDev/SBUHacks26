@@ -59,15 +59,27 @@ final class VisionClassifier: ObstacleClassifier {
         return request
     }()
 
+    /// The bundled detector loaded from the app bundle.
+    var hasObjectModel: Bool { objects != nil }
+    /// What went wrong in the last run, per detector, or nil.
+    private(set) var lastError: String?
+    /// The bundled detector's top guesses in the last run, named or not, for the debug view ("Table 0.41").
+    private(set) var lastObjectGuesses: [String] = []
+
     func classify(_ image: CGImage) -> [ClassifiedBox] {
         let handler = VNImageRequestHandler(cgImage: image, orientation: .right, options: [:])
-        var requests: [VNRequest] = [humans, animals]
-        if let objects { requests.append(objects) }
-        do {
-            try handler.perform(requests)
-        } catch {
-            return []
+        // One request at a time, so a failing model cannot silence the people and dog detectors.
+        var errors: [String] = []
+        var requests: [(String, VNRequest)] = [("people", humans), ("dogs", animals)]
+        if let objects { requests.append(("objects", objects)) }
+        for (name, request) in requests {
+            do {
+                try handler.perform([request])
+            } catch {
+                errors.append("\(name): \(error.localizedDescription)")
+            }
         }
+        lastError = errors.isEmpty ? nil : errors.joined(separator: "; ")
         var boxes: [ClassifiedBox] = []
         for observation in humans.results ?? [] where observation.confidence >= minConfidence {
             boxes.append(ClassifiedBox(
@@ -81,7 +93,11 @@ final class VisionClassifier: ObstacleClassifier {
                 label: .dog, confidence: top.confidence, rect: Self.sensorRect(fromUpright: observation.boundingBox)
             ))
         }
-        for case let observation as VNRecognizedObjectObservation in objects?.results ?? [] {
+        let objectResults = (objects?.results ?? []).compactMap { $0 as? VNRecognizedObjectObservation }
+        lastObjectGuesses = objectResults.compactMap { observation in
+            observation.labels.first.map { String(format: "%@ %.2f", $0.identifier, $0.confidence) }
+        }.prefix(4).map { $0 }
+        for observation in objectResults {
             guard let top = observation.labels.first, top.confidence >= objectMinConfidence,
                   let label = ObstacleLabel.openImages[top.identifier] else { continue }
             boxes.append(ClassifiedBox(

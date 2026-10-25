@@ -2,44 +2,48 @@ import Foundation
 
 /// How much a named obstacle matters to someone walking. Decides which verbosity levels hear its name.
 enum LabelTier: Int, Comparable, Sendable {
-    /// Furniture and street objects: named only in Chatty.
+    /// Furniture and street objects.
     case common
-    /// Things that move, hurt on contact, or matter for finding the way (doors): named in Normal and Chatty.
+    /// Things that move, hurt on contact, or matter for finding the way (doors). Only these get Chatty's
+    /// "just off to your left" mentions when they are beside the path rather than in it.
     case hazard
 
     static func < (a: LabelTier, b: LabelTier) -> Bool { a.rawValue < b.rawValue }
 
-    /// Minimal never names anything; Normal names hazards; Chatty names everything.
+    /// Minimal never names anything; Normal and Chatty name whatever is in the way (team decision, 2026-10-25).
     func isSpoken(at verbosity: Verbosity) -> Bool {
-        switch verbosity {
-        case .minimal: false
-        case .normal: self == .hazard
-        case .chatty: true
-        }
+        verbosity != .minimal
     }
 }
 
 /// What an obstacle is, when the camera can tell. Detection (something is there) always comes from LiDAR;
-/// a label only names an obstacle the depth grid already holds.
+/// a label only names an obstacle the depth grid already holds. `doorway` is the exception: an opening found
+/// in the depth grid (`DoorwayDetector`), announced on its own and never treated as an obstacle.
 enum ObstacleLabel: String, Sendable, CaseIterable {
-    case person, bicycle, motorbike, vehicle, dog, pole, door, wheelchair, cart, tree
+    case person, bicycle, motorbike, vehicle, dog, pole, door, wheelchair, cart, tree, doorway
     case chair, bench, table, desk, couch, bed, shelf, cabinet, plant, bag, hydrant, parkingMeter, trashCan, box
 
     var tier: LabelTier {
         switch self {
-        case .person, .bicycle, .motorbike, .vehicle, .dog, .pole, .door, .wheelchair, .cart, .tree: .hazard
+        case .person, .bicycle, .motorbike, .vehicle, .dog, .pole, .door, .wheelchair, .cart, .tree, .doorway: .hazard
         case .chair, .bench, .table, .desk, .couch, .bed, .shelf, .cabinet, .plant, .bag, .hydrant, .parkingMeter,
              .trashCan, .box: .common
         }
     }
 
-    /// Phrase id in `phrases.json`: `label_` plus the name in snake case.
-    var phrase: String {
-        let snake = rawValue.reduce(into: "") { out, ch in
+    private var snake: String {
+        rawValue.reduce(into: "") { out, ch in
             if ch.isUppercase { out += "_" + ch.lowercased() } else { out.append(ch) }
         }
-        return "label_" + snake
     }
+
+    /// Phrase ids in `phrases.json`, each the name in snake case after a prefix:
+    /// `label_` "A door" (before "is just off to your left."),
+    /// `ahead_` "There's a door just ahead," (before which way to go),
+    /// `near_` "There's a door right in front of you." (after Stop).
+    var phrase: String { "label_" + snake }
+    var aheadPhrase: String { "ahead_" + snake }
+    var nearPhrase: String { "near_" + snake }
 
     func isSpoken(at verbosity: Verbosity) -> Bool { tier.isSpoken(at: verbosity) }
 

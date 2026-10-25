@@ -192,6 +192,10 @@ struct CameraOverlayView: View {
             if !compact {
                 Text(p.reason).font(.caption2).foregroundStyle(.secondary)
             }
+            // Identification: detector health, then why the obstacle ahead is or is not named.
+            ForEach(Array(snapshot.namingStatus.enumerated()), id: \.offset) { _, line in
+                Text(line).font(.caption2.monospaced()).foregroundStyle(.mint).lineLimit(2).multilineTextAlignment(.center)
+            }
         }
         .padding(8)
         .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))

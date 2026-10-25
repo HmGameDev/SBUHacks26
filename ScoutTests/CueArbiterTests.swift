@@ -136,12 +136,18 @@ final class CueArbiterTests: XCTestCase {
     func testNormalNamesAPersonInTheWay() {
         let arbiter = CueArbiter()
         let commands = arbiter.update(planner(heading: 30, urgency: 0.4, nearest: 1.5, label: .person), now: 0, tuning: tuning)
-        XCTAssertEqual(spoken(commands).first?.0.phrases, ["label_person", "right"], "what it is, then which way")
+        XCTAssertEqual(spoken(commands).first?.0.phrases, ["ahead_person", "go_right"], "what it is, then which way")
     }
 
-    func testNormalDoesNotNameFurniture() {
+    func testNormalNamesFurniture() {
         let arbiter = CueArbiter()
-        let commands = arbiter.update(planner(heading: 30, urgency: 0.4, nearest: 2.2, label: .chair), now: 0, tuning: tuning)
+        let commands = arbiter.update(planner(heading: 30, urgency: 0.4, nearest: 2.2, label: .desk), now: 0, tuning: tuning)
+        XCTAssertEqual(spoken(commands).first?.0.phrases, ["ahead_desk", "go_right"])
+    }
+
+    func testUnnamedSteeringStaysOneWord() {
+        let arbiter = CueArbiter()
+        let commands = arbiter.update(planner(heading: 30, urgency: 0.4, nearest: 2.2), now: 0, tuning: tuning)
         XCTAssertEqual(spoken(commands).first?.0.phrases, ["right"])
     }
 
@@ -149,13 +155,13 @@ final class CueArbiterTests: XCTestCase {
         let arbiter = CueArbiter()
         arbiter.verbosity = .chatty
         let commands = arbiter.update(planner(heading: 30, urgency: 0.4, nearest: 2.2, label: .chair), now: 0, tuning: tuning)
-        XCTAssertEqual(spoken(commands).first?.0.phrases, ["label_chair", "right", "dist_2"])
+        XCTAssertEqual(spoken(commands).first?.0.phrases, ["ahead_chair", "go_right", "dist_2"])
     }
 
     func testPoleWithSlightTurn() {
         let arbiter = CueArbiter()
         let commands = arbiter.update(planner(heading: 10, urgency: 0.5, nearest: 1.0, label: .pole), now: 0, tuning: tuning)
-        XCTAssertEqual(spoken(commands).first?.0.phrases, ["label_pole", "slight_right"])
+        XCTAssertEqual(spoken(commands).first?.0.phrases, ["ahead_pole", "go_slight_right"])
     }
 
     func testMinimalNeverNames() {
@@ -169,7 +175,8 @@ final class CueArbiterTests: XCTestCase {
         let arbiter = CueArbiter()
         let commands = arbiter.update(planner(heading: 30, urgency: 0.95, nearest: 0.6, label: .person), now: 0, tuning: tuning)
         let speech = spoken(commands)
-        XCTAssertEqual(speech.first?.0.phrases, ["stop", "label_person"])
+        XCTAssertEqual(speech.first?.0.phrases, ["stop", "near_person"])
+        XCTAssertEqual(speech.first?.0.text, "Stop. There's a person right in front of you.")
         XCTAssertEqual(speech.count, 1)
         // The steer cue queued behind Stop does not repeat the name.
         XCTAssertEqual(spoken(arbiter.speechFinished(now: 0.5)).first?.0.phrases, ["right"])
@@ -196,7 +203,8 @@ final class CueArbiterTests: XCTestCase {
     func testSameObjectIsNamedOnce() {
         let said = walk(CueArbiter(), planner(heading: 30, urgency: 0.4, nearest: 1.5, label: .person), seconds: 11)
         // Repeats every 2.5 s; the name comes back only after labelRepeatSeconds.
-        XCTAssertEqual(said, [["label_person", "right"], ["right"], ["right"], ["right"], ["label_person", "right"]])
+        // The second time, the direction is worded differently.
+        XCTAssertEqual(said, [["ahead_person", "go_right"], ["right"], ["right"], ["right"], ["ahead_person", "go_right_alt"]])
     }
 
     func testANewObjectIsNamed() {
@@ -221,7 +229,7 @@ final class CueArbiterTests: XCTestCase {
         arbiter.verbosity = .chatty
         let side = [SideLabel(label: .person, track: 7, onLeft: true, distance: 1.2)]
         let first = spoken(arbiter.update(planner(side: side), now: 0, tuning: tuning))
-        XCTAssertEqual(first.first?.0.phrases, ["label_person", "on_left"])
+        XCTAssertEqual(first.first?.0.phrases, ["label_person", "beside_left"])
         XCTAssertEqual(first.first?.0.tier, .status)
         _ = arbiter.speechFinished(now: 1)
         XCTAssertTrue(spoken(arbiter.update(planner(side: side), now: 5, tuning: tuning)).isEmpty, "once per person")
@@ -234,7 +242,7 @@ final class CueArbiterTests: XCTestCase {
         _ = arbiter.speechFinished(now: 1)
         let other = [SideLabel(label: .dog, track: 8, onLeft: false, distance: 1.0)]
         XCTAssertTrue(spoken(arbiter.update(planner(side: other), now: 2, tuning: tuning)).isEmpty)
-        XCTAssertEqual(spoken(arbiter.update(planner(side: other), now: 4.1, tuning: tuning)).first?.0.phrases, ["label_dog", "on_right"])
+        XCTAssertEqual(spoken(arbiter.update(planner(side: other), now: 4.1, tuning: tuning)).first?.0.phrases, ["label_dog", "beside_right"])
     }
 
     func testSideMentionsWaitForSilence() {
@@ -254,23 +262,51 @@ final class CueArbiterTests: XCTestCase {
     func testNormalNamesADoor() {
         let arbiter = CueArbiter()
         let commands = arbiter.update(planner(heading: -30, urgency: 0.4, nearest: 1.5, label: .door), now: 0, tuning: tuning)
-        XCTAssertEqual(spoken(commands).first?.0.phrases, ["label_door", "left"])
+        XCTAssertEqual(spoken(commands).first?.0.phrases, ["ahead_door", "go_left"])
     }
 
     func testGeminiNameIsSpokenAsText() {
         let arbiter = CueArbiter()
         let p = planner(heading: 30, urgency: 0.4, nearest: 1.5, cloud: "Scooter", cloudHazard: true, track: 2_000_000)
         let cue = spoken(arbiter.update(p, now: 0, tuning: tuning)).first?.0
-        XCTAssertEqual(cue?.phrases, ["say:Scooter", "right"])
-        XCTAssertEqual(cue?.text, "Scooter. Right.")
+        XCTAssertEqual(cue?.phrases, ["say:There's a scooter just ahead, step right to go around it."])
+        XCTAssertEqual(cue?.text, "There's a scooter just ahead, step right to go around it.")
     }
 
-    func testNormalSkipsHarmlessGeminiNames() {
+    func testNormalNamesHarmlessGeminiNamesToo() {
         let arbiter = CueArbiter()
-        let p = planner(heading: 30, urgency: 0.4, nearest: 1.5, cloud: "Recycling bin", track: 2_000_000)
-        XCTAssertEqual(spoken(arbiter.update(p, now: 0, tuning: tuning)).first?.0.phrases, ["right"])
-        let chatty = CueArbiter()
-        chatty.verbosity = .chatty
-        XCTAssertEqual(spoken(chatty.update(p, now: 0, tuning: tuning)).first?.0.phrases, ["say:Recycling bin", "right", "dist_2"])
+        let p = planner(heading: 30, urgency: 0.4, nearest: 1.5, cloud: "Umbrella stand", track: 2_000_000)
+        XCTAssertEqual(
+            spoken(arbiter.update(p, now: 0, tuning: tuning)).first?.0.phrases,
+            ["say:There's an umbrella stand just ahead, step right to go around it."]
+        )
+    }
+
+    // MARK: - Doorways
+
+    func testDoorwayIsAnnouncedOnceInNormal() {
+        let arbiter = CueArbiter()
+        var p = planner()
+        p.doorway = DoorwayInfo(track: 3_000_000, forward: 2.5, lateral: 0.6)
+        let first = spoken(arbiter.update(p, now: 0, tuning: tuning))
+        XCTAssertEqual(first.first?.0.phrases, ["ahead_doorway", "way_slight_right"])
+        XCTAssertEqual(first.first?.0.text, "There's a doorway a little to your right.")
+        _ = arbiter.speechFinished(now: 1)
+        XCTAssertTrue(spoken(arbiter.update(p, now: 5, tuning: tuning)).isEmpty, "once per doorway")
+    }
+
+    func testDoorwayWaitsForSteering() {
+        let arbiter = CueArbiter()
+        var p = planner(heading: 30, urgency: 0.4, nearest: 1.5)
+        p.doorway = DoorwayInfo(track: 3_000_000, forward: 2.5, lateral: 0)
+        XCTAssertEqual(spoken(arbiter.update(p, now: 0, tuning: tuning)).map { $0.0.phrases }, [["right"]])
+    }
+
+    func testMinimalSkipsDoorways() {
+        let arbiter = CueArbiter()
+        arbiter.verbosity = .minimal
+        var p = planner()
+        p.doorway = DoorwayInfo(track: 3_000_000, forward: 2.5, lateral: 0)
+        XCTAssertTrue(spoken(arbiter.update(p, now: 0, tuning: tuning)).isEmpty)
     }
 }

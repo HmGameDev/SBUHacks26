@@ -158,6 +158,13 @@ extension Tuning {
         LabelTracker.Rules(window: labelVoteWindow, needed: labelVotesNeeded, hold: labelHoldSeconds, matchRadius: labelMatchRadius)
     }
 
+    var doorwayLabelRules: LabelTracker.Rules {
+        LabelTracker.Rules(
+            window: doorwayVoteWindow, needed: doorwayVotesNeeded, hold: doorwayHoldSeconds, matchRadius: doorwayMatchRadius,
+            staticRadius: doorwayMatchRadius
+        )
+    }
+
     var poleLabelRules: LabelTracker.Rules {
         LabelTracker.Rules(
             window: poleVoteWindow, needed: poleVotesNeeded, hold: poleHoldSeconds, matchRadius: poleMatchRadius,
@@ -220,6 +227,33 @@ enum LabelQuery {
         guard f <= t.labelMaxDistance, f >= ahead - 0.3, f <= ahead + 0.7, abs(l) <= t.corridorWidth / 2 + 0.2,
               hasSupport(grid: grid, forward: f, lateral: l) else { return nil }
         return f
+    }
+
+    /// One line for the debug view: what is being named, or why the closest confirmed name is not.
+    static func status(
+        nearest: LabelTrack?, named: [LabelTrack], candidates: Int,
+        body: BodyFrame, grid: OccupancyGrid, planner p: PlannerOutput, tuning t: Tuning
+    ) -> String {
+        if let track = nearest, let label = track.label {
+            let f = body.local(SIMD3(track.position.x, 0, track.position.y)).forward
+            return String(format: "Naming %@ at %.1f m", label.rawValue, f)
+        }
+        let placed = named.compactMap { track -> (track: LabelTrack, label: ObstacleLabel, f: Float, l: Float)? in
+            guard let label = track.label else { return nil }
+            let (f, l) = body.local(SIMD3(track.position.x, 0, track.position.y))
+            return f > 0 ? (track, label, f, l) : nil
+        }
+        guard let closest = placed.min(by: { $0.f < $1.f }) else {
+            return candidates == 0 ? "No detections placed in the world" : "Seen \(candidates), none confirmed yet"
+        }
+        let what = String(format: "%@ at %.1f m", closest.label.rawValue, closest.f)
+        guard let ahead = p.nearestObstacle else { return "\(what): nothing straight ahead" }
+        if closest.f > t.labelMaxDistance { return String(format: "%@: farther than %.1f m", what, t.labelMaxDistance) }
+        if abs(closest.l) > t.corridorWidth / 2 + 0.2 { return String(format: "%@: %.1f m to the side", what, closest.l) }
+        if closest.f < ahead - 0.3 || closest.f > ahead + 0.7 {
+            return String(format: "%@: obstacle ahead is at %.1f m", what, ahead)
+        }
+        return "\(what): no depth under it"
     }
 
     /// An obstacle cell within 0.3 m of the spot.
