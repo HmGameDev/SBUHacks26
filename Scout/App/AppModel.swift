@@ -121,6 +121,7 @@ final class AppModel {
         }
         refreshRecordings()
         observeTuning()
+        observeNameObstacles()
     }
 
     // MARK: - Start and stop
@@ -444,6 +445,7 @@ final class AppModel {
         options.wantsDebug = wantsDebug
         options.thermalThrottle = thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         options.alignToNorth = mode == .guided
+        options.identify = preferencesStore.preferences.nameObstacles
         return options
     }
 
@@ -456,6 +458,19 @@ final class AppModel {
                 let tuning = self.tuningStore.tuning
                 self.runner.update { $0.tuning = tuning }
                 self.observeTuning()
+            }
+        }
+    }
+
+    private func observeNameObstacles() {
+        withObservationTracking {
+            _ = preferencesStore.preferences.nameObstacles
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                let identify = self.preferencesStore.preferences.nameObstacles
+                self.runner.update { $0.identify = identify }
+                self.observeNameObstacles()
             }
         }
     }

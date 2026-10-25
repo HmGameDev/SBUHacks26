@@ -98,7 +98,7 @@ struct CuePhrases {
         texts = Dictionary(all.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Phrases the app may play now. Reserved ones belong to obstacle identification, which is not built yet.
+    /// Phrases the app may play. Reserved ones are cues it no longer plays (Duck), kept so old notes still make sense.
     var active: [Phrase] { all.filter { $0.reserved != true } }
 
     func text(for id: String) -> String {

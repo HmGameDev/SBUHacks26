@@ -144,14 +144,29 @@ struct CameraOverlayView: View {
             context.stroke(path, with: .color(.yellow), style: StrokeStyle(lineWidth: 5, lineCap: .round))
         }
 
-        // Reserved for identification: boxes from the classifier (always empty for now).
-        for box in snapshot.classifiedBoxes {
+        // Identification: the latest detector boxes (dashed when the depth inside missed), then confirmed names.
+        for detection in snapshot.detections {
             let w = Float(mapper.depthWidth), h = Float(mapper.depthHeight)
-            let a = mapper.point(u: Float(box.rect.minX) * w, v: Float(box.rect.minY) * h)
-            let b = mapper.point(u: Float(box.rect.maxX) * w, v: Float(box.rect.maxY) * h)
+            let r = detection.rect
+            let a = mapper.point(u: Float(r.minX) * w, v: Float(r.minY) * h)
+            let b = mapper.point(u: Float(r.maxX) * w, v: Float(r.maxY) * h)
             let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
-            context.stroke(Path(rect), with: .color(.white), lineWidth: 2)
-            context.draw(Text(box.label.rawValue).font(.caption).foregroundStyle(.white), at: CGPoint(x: rect.minX + 4, y: rect.minY - 8), anchor: .leading)
+            let color: Color = detection.world == nil ? .gray : (detection.label.tier == .hazard ? .orange : .mint)
+            let dash: [CGFloat] = detection.world == nil ? [6, 4] : []
+            context.stroke(Path(rect), with: .color(color), style: StrokeStyle(lineWidth: 2, dash: dash))
+            let caption = String(format: "%@ %.2f", detection.label.rawValue, detection.confidence)
+            context.draw(
+                Text(caption).font(.caption.bold()).foregroundStyle(color),
+                at: CGPoint(x: rect.minX + 4, y: rect.minY - 8), anchor: .leading
+            )
+        }
+        for mark in snapshot.labelMarks {
+            let at = mapper.point(mark.pixel)
+            let text = Text(mark.label.rawValue.uppercased()).font(.caption.bold()).foregroundStyle(.black)
+            let size = context.resolve(text).measure(in: CGSize(width: 200, height: 40))
+            let tag = CGRect(x: at.x - size.width / 2 - 6, y: at.y - size.height / 2 - 3, width: size.width + 12, height: size.height + 6)
+            context.fill(Path(roundedRect: tag, cornerRadius: 6), with: .color(mark.isNearest ? .yellow : .white.opacity(0.85)))
+            context.draw(text, at: at)
         }
     }
 

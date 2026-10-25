@@ -11,6 +11,6 @@ python3 tools/generate_cues/generate_cues.py --normalize
 - `--force` regenerates clips that already exist.
 - `--only stop,left,right` regenerates just those ids.
 - `--normalize` runs ffmpeg loudnorm so every cue plays at the same level (recommended for the phone speaker).
-- Reserved phrases (obstacle names for later identification work) are skipped.
+- Reserved phrases (cues the app no longer plays, like Duck) are skipped. Run with `--only label_person,label_pole,label_dog,on_left,on_right` to add just the obstacle names.
 
 To change wording, edit `phrases.json`, then rerun with `--only <id> --force`. Listen to the clips through the phone speaker at walking volume before committing them; short words like "Left." must be unmistakable from "Right." outdoors.

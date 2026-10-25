@@ -9,6 +9,8 @@ final class ARFrameSource: NSObject, FrameSource, ARSessionDelegate {
         var useSmoothedDepth = false
         /// Color frames per second to encode as JPEG; 0 disables color capture.
         var colorFPS: Double = 0
+        /// Color frames per second for the obstacle detector; 0 disables them.
+        var detectorFPS: Double = 0
         /// `.gravityAndHeading` points -Z at true north, which Guided mode needs for its bearing.
         var alignToNorth = false
     }
@@ -25,6 +27,7 @@ final class ARFrameSource: NSObject, FrameSource, ARSessionDelegate {
     private let session = ARSession()
     private var lastEmit: TimeInterval = 0
     private var lastColor: TimeInterval = 0
+    private var lastDetectorImage: TimeInterval = 0
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
     init(queue: DispatchQueue) {
@@ -45,6 +48,7 @@ final class ARFrameSource: NSObject, FrameSource, ARSessionDelegate {
         configuration.isAutoFocusEnabled = true
         lastEmit = 0
         lastColor = 0
+        lastDetectorImage = 0
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         onStatus?(.running)
     }
@@ -81,6 +85,12 @@ final class ARFrameSource: NSObject, FrameSource, ARSessionDelegate {
             lastColor = timestamp
             jpeg = encodeJPEG(frame.capturedImage)
         }
+        var detectorImage: ColorImage?
+        if settings.detectorFPS > 0, timestamp - lastDetectorImage >= 1.0 / settings.detectorFPS {
+            lastDetectorImage = timestamp
+            // A copy, so the detector never holds one of ARKit's few capture buffers.
+            detectorImage = makeImage(frame.capturedImage).map(ColorImage.init)
+        }
 
         let bundle = FrameBundle(
             timestamp: timestamp,
@@ -89,7 +99,8 @@ final class ARFrameSource: NSObject, FrameSource, ARSessionDelegate {
             colorJPEG: jpeg,
             intrinsics: intrinsics,
             cameraTransform: frame.camera.transform,
-            trackingNormal: frame.camera.trackingState == .normal
+            trackingNormal: frame.camera.trackingState == .normal,
+            colorImage: detectorImage
         )
         onFrame?(bundle)
     }
@@ -151,6 +162,14 @@ final class ARFrameSource: NSObject, FrameSource, ARSessionDelegate {
             }
         }
         return ConfidenceImage(width: width, height: height, values: values)
+    }
+
+    /// About 640x480 for the detector.
+    private func makeImage(_ buffer: CVPixelBuffer) -> CGImage? {
+        let image = CIImage(cvPixelBuffer: buffer)
+        let scale = 640.0 / max(1, image.extent.width)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return ciContext.createCGImage(scaled, from: scaled.extent)
     }
 
     /// About 640x480, quality 0.5: enough to see what the camera sees, small enough to record.

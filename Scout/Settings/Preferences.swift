@@ -14,6 +14,8 @@ struct Preferences: Codable, Equatable, Sendable {
     var hapticStrength: Float = 1.0
     /// Open the full-screen camera view after Start.
     var showCamera = false
+    /// Say what obstacles are ("Person, left"). Off until the blind-tester gate passes with it on.
+    var nameObstacles = false
     /// Read directions with the ElevenLabs voice when a key is set and the network answers in time.
     var useAIVoice = true
     /// Pasted in Settings; overrides `Secrets.plist`. Stays on this phone, never in git.
@@ -31,6 +33,7 @@ struct Preferences: Codable, Equatable, Sendable {
         cueVolume = try c.decodeIfPresent(Float.self, forKey: .cueVolume) ?? d.cueVolume
         hapticStrength = try c.decodeIfPresent(Float.self, forKey: .hapticStrength) ?? d.hapticStrength
         showCamera = try c.decodeIfPresent(Bool.self, forKey: .showCamera) ?? d.showCamera
+        nameObstacles = try c.decodeIfPresent(Bool.self, forKey: .nameObstacles) ?? d.nameObstacles
         useAIVoice = try c.decodeIfPresent(Bool.self, forKey: .useAIVoice) ?? d.useAIVoice
         elevenLabsKey = try c.decodeIfPresent(String.self, forKey: .elevenLabsKey) ?? d.elevenLabsKey
         elevenLabsVoiceID = try c.decodeIfPresent(String.self, forKey: .elevenLabsVoiceID) ?? d.elevenLabsVoiceID

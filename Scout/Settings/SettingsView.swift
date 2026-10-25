@@ -20,7 +20,7 @@ struct SettingsView: View {
                     ForEach(Verbosity.allCases) { level in
                         Button {
                             model.verbosity = level
-                            feedback.preview(phrases: Self.example(for: level))
+                            feedback.preview(phrases: Self.example(for: level, naming: store.preferences.nameObstacles))
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -144,6 +144,18 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Name obstacles", isOn: $store.preferences.nameObstacles)
+                        .tint(Theme.accent)
+                        .onChange(of: store.preferences.nameObstacles) {
+                            if store.preferences.nameObstacles { feedback.preview(phrases: ["label_person", "left"]) }
+                        }
+                } header: {
+                    Text("Obstacle names (testing)")
+                } footer: {
+                    Text("Says what is in your way, like \"Person. Left.\" The camera names it, but only things the depth sensor already sees, so Stop never waits for a name. Off by default while it is being tested. Uses more battery.")
+                }
+
+                Section {
                     Toggle("Open camera view after Start", isOn: $store.preferences.showCamera)
                         .tint(Theme.accent)
                 } footer: {
@@ -171,11 +183,11 @@ struct SettingsView: View {
         return "No key yet: directions use the iPhone voice."
     }
 
-    static func example(for level: Verbosity) -> [String] {
+    static func example(for level: Verbosity, naming: Bool) -> [String] {
         switch level {
         case .minimal: ["stop"]
-        case .normal: ["left"]
-        case .chatty: ["left", "dist_2"]
+        case .normal: naming ? ["label_person", "left"] : ["left"]
+        case .chatty: naming ? ["label_person", "left", "dist_2"] : ["left", "dist_2"]
         }
     }
 

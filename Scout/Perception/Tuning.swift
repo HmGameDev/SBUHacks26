@@ -76,13 +76,43 @@ struct Tuning: Codable, Equatable, Sendable {
     var pulseMaxInterval: Double = 1.0
     var pulseMinInterval: Double = 0.12
 
+    // Identification (only runs with Settings > Name obstacles on)
+    /// Detector runs per second, and the rate when the phone is warm.
+    var detectorHz: Double = 5
+    var detectorHzWarm: Double = 2
+    var detectorMinConfidence: Float = 0.5
+    /// A name is confirmed once it shows up in `labelVotesNeeded` of the last `labelVoteWindow` runs.
+    var labelVoteWindow: Int = 5
+    var labelVotesNeeded: Int = 3
+    var labelHoldSeconds: Double = 1.5
+    var labelMatchRadius: Float = 0.6
+    /// Names are only spoken for obstacles this close.
+    var labelMaxDistance: Float = 3.0
+    /// The same object is named again only after this long, or after it left the path for 3 s.
+    var labelRepeatSeconds: Double = 10
+    var sideMentionDistance: Float = 2.0
+    var sideMentionInterval: Double = 4
+    // Poles from geometry (PoleDetector); votes are per frame.
+    var poleMaxCells: Int = 3
+    var poleMinTop: Float = 1.2
+    var poleMaxBase: Float = 0.6
+    var poleSideCells: Int = 2
+    var poleVoteWindow: Int = 20
+    var poleVotesNeeded: Int = 12
+    var poleMinAge: Double = 0.6
+    /// Long enough to keep the name while walking up to the pole, when the floor beside it drops out of view.
+    var poleHoldSeconds: Double = 4
+    var poleMatchRadius: Float = 0.4
+    var poleStaticRadius: Float = 0.3
+
     static let defaults = Tuning()
 }
 
 @Observable
 final class TuningStore {
-    // v3: new defaults for stair and drop-off sensitivity, so older stored values must not override them.
-    private static let key = "scout.tuning.v3"
+    // Bump the version whenever a field is added: the synthesized decoder rejects data missing a field.
+    // v4: identification settings.
+    private static let key = "scout.tuning.v4"
 
     var tuning: Tuning {
         didSet { save() }

@@ -21,7 +21,7 @@ These are decided. Do not revisit them without asking the team.
 | Audio out | Phone speaker only, no headphones | No stereo panning (the two speakers are top and bottom in portrait, so left/right audio is meaningless). Direction must be spoken. Keep words short and loud. |
 | Haptics | Phone vibration only | The whole phone vibrates against the sternum, so vibration cannot say left or right. Use it for urgency and for distinct events. |
 | Modes | **Guided**: obstacle guidance plus GPS route to a destination. **Passive**: obstacle guidance only, no destination, no GPS. | Passive is the default and must be complete on its own. Guided is built last. |
-| Obstacle identification | Leave room for it in the data model; do not build it | Detection (something is there) ships first. Identification (it is a person, a pole) comes after everything else works. |
+| Obstacle identification | Built behind an off-by-default switch (section 8) | Detection (something is there) ships first and never depends on it. Identification (it is a person, a pole) only names what LiDAR already sees. |
 | Language | Swift (Swift 5 language mode on the Swift 6 compiler), SwiftUI, ARKit, CoreHaptics, AVFoundation | Minimum iOS 17. No third-party dependencies for the core pipeline. Swift 5 mode avoids strict-concurrency churn during the hackathon; the pipeline runs on one serial queue. |
 | Testers | A blind tester is available for the demo | See section 10 for the test protocol. |
 
@@ -85,7 +85,6 @@ struct GridCell {
     var minHeight: Float     // meters above floor
     var maxHeight: Float
     var hits: UInt16         // points that landed here this frame
-    var label: ObstacleLabel? // reserved for identification; always nil for now
 }
 
 struct PlannerOutput: Sendable {
@@ -226,7 +225,7 @@ One debug mode with a tab per module, all reading the same snapshot:
 
 | Screen | Shows |
 | --- | --- |
-| **Camera overlay** (main screen) | Live color image, with every sampled depth point drawn on top colored by class: floor green, obstacle red, drop-off purple, overhead orange, low confidence gray. The walking corridor drawn as a translucent band projected onto the floor. The chosen heading as an arrow. Nearest obstacle distance in large text. Reserved space for identification boxes and labels, empty for now. |
+| **Camera overlay** (main screen) | Live color image, with every sampled depth point drawn on top colored by class: floor green, obstacle red, drop-off purple, overhead orange, low confidence gray. The walking corridor drawn as a translucent band projected onto the floor. The chosen heading as an arrow. Nearest obstacle distance in large text. With Name obstacles on, detector boxes and confirmed names (section 8). |
 | **Depth** | Heat map (Shepherd's color ramp) with a confidence mask toggle. |
 | **Top-down grid** | The occupancy grid with cell colors, the 16 candidate headings with their free distances, and the chosen one highlighted. |
 | **Side view** | Points projected onto forward-vs-height, with the estimated floor line and the class thresholds as horizontal lines. Best view for tuning drop-offs and overhead. |
@@ -239,16 +238,14 @@ The camera overlay should always render at reduced cost (downsampled points, 15 
 
 ---
 
-## 8. Obstacle identification (reserved, do not build yet)
+## 8. Obstacle identification (built behind a switch, 2026-10-25)
 
-Leave these seams so identification drops in later without restructuring:
+The team chose to build steps 1 to 3 of the identification plan before the gate 6 walk, behind **Settings > Name obstacles**, off by default. Turn it on for the tester only after Passive mode passes gate 6 with it off. Plan: https://claude.ai/artifact/7hXD4tRR26gGwYNLwd3YdZ
 
-- `ObstacleLabel` on `GridCell` (section 3), always nil for now.
-- An `ObstacleClassifier` protocol taking a `FrameBundle` and returning `[ClassifiedBox]` (label, confidence, normalized rect). Ship only `NullClassifier`.
-- Cue vocabulary has slots for "Person ahead", "Pole", and so on. Do not generate or play them yet.
-- The camera overlay reserves the box-drawing layer.
-
-Start this only when Passive mode passes the blind-tester gate in section 9. Shepherd's `detectPerson` (Vision `VNDetectHumanRectanglesRequest`) is the first candidate.
+- **Rule:** the camera only names obstacles the depth grid already holds. It never creates, removes, or delays a cue. Stop plays its own clip first; the name follows ("Stop. Person.").
+- **Tiers:** Hazard (person, bike, motorbike, vehicle, dog, pole) is named in Normal and Chatty when it is the obstacle the planner reacts to. Common (chair, bench, table, couch, plant, bag, hydrant, parking meter) is named in Chatty only. Chatty also says "Person. On your left." for a hazard just outside the corridor. Minimal never names anything. Each object is named once, again after 10 s or after it left the path for 3 s.
+- **Sources:** Vision's `VNDetectHumanRectanglesRequest` and `VNRecognizeAnimalsRequest` at 5 Hz (2 Hz when warm) on their own queue; `LabelFusion` places each box with the depth inside it; `LabelTracker` confirms a name seen in 3 of the last 5 runs. Poles come from the grid (`PoleDetector`), confirmed in 12 of 20 frames, at least 0.6 s old, and standing still. Vision overrides a pole wherever it has seen something in the last second.
+- **Next (step 4):** a COCO Core ML detector (YOLO11n, AGPL-3.0, accepted for the hackathon) for bikes, cars, and furniture, mapped onto the same labels.
 
 Do not name the protocol `ObjectIdentifier`; that is a Swift standard library type.
 
@@ -265,7 +262,7 @@ Each phase ends with a gate. Do not start the next phase until the gate passes, 
 5. **Cues: bundled voice and vibration.** *Gate:* the Stop cue plays in airplane mode in under 100 ms from the triggering frame, measured in the cue log.
 6. **Passive mode end to end, Siri intents, verbosity.** *Gate:* the blind tester walks an indoor course safely with a cane and a spotter, and says the cues help more than they distract.
 7. **Guided mode.** Walking routes from MapKit (no API key), and ARKit `.gravityAndHeading` for a north-aligned body heading instead of Shepherd's ORS routing and custom compass fusion. *Gate:* one short outdoor route end to end.
-8. **Identification** (section 8), only if time remains.
+8. **Identification** (section 8). Built early behind a switch that stays off until gate 6 passes. *Gate:* the tester walks the gate 6 course with names on in Normal, then Chatty; no wrong Hazard names, and the names help more than they distract.
 
 If time runs short, cut Guided mode before cutting replay, drop-off detection, or the camera overlay.
 
@@ -290,7 +287,7 @@ Scout/                 Xcode project
   Perception/              Calibration, point cloud, grid, planner
   Feedback/                Cue arbiter, speech, haptics, cue assets
   Navigation/              Guided mode (later)
-  Identification/          Protocol and NullClassifier only
+  Identification/          Labels, Vision detector, fusion, tracking, poles
   Debug/                   Overlay, views, HUD, tuning
 ScoutTests/            Unit tests, replay-based tests
 tools/generate_cues/       ElevenLabs script and phrase list

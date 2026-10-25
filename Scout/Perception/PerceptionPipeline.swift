@@ -37,11 +37,24 @@ struct PerceptionResult: Sendable {
     let goalPath: [SIMD2<Float>]
     /// Corridor side profile used for stair detection: (forward, median height) per bin.
     let profile: [SIMD2<Float>]
+    /// Confirmed obstacle names, drawn about 1 m above the floor at their tracked spot.
+    let labelMarks: [LabelMark]
+}
+
+/// A confirmed name for the camera overlay.
+struct LabelMark: Sendable, Equatable {
+    let label: ObstacleLabel
+    /// Depth-image pixel.
+    let pixel: SIMD2<Float>
+    /// This is the obstacle the planner is reacting to.
+    let isNearest: Bool
 }
 
 /// Frame in, guidance out. Pure apart from its own state, so replaying the same frames gives the same output.
 final class PerceptionPipeline {
     var tuning = Tuning()
+    /// Name obstacles (Settings > Name obstacles). Off: no pole search and no labels, so output is as before.
+    var identify = false
     private var floor = FloorEstimator()
     private var map = WorldMap(cellSize: Tuning().cellSize)
     private let planner = GapPlanner()
@@ -51,6 +64,8 @@ final class PerceptionPipeline {
     private var lastTime: TimeInterval?
     private var stairsSince: TimeInterval?
     private var lastStairs: StairInfo?
+    private var visionTracks = LabelTracker(rules: Tuning().visionLabelRules, firstID: 1)
+    private var poleTracks = LabelTracker(rules: Tuning().poleLabelRules, firstID: 1_000_000)
 
     private let maxDebugPoints = 4000
 
@@ -63,6 +78,14 @@ final class PerceptionPipeline {
         lastTime = nil
         stairsSince = nil
         lastStairs = nil
+        visionTracks.reset()
+        poleTracks.reset()
+    }
+
+    /// One detector run, already placed in the world by `LabelFusion`.
+    func ingest(_ detections: [Detection], time: TimeInterval) {
+        visionTracks.rules = tuning.visionLabelRules
+        visionTracks.ingest(detections, time: time)
     }
 
     func process(_ frame: FrameBundle, goalHeading: Float?, wantDebug: Bool) -> PerceptionResult {
@@ -75,7 +98,8 @@ final class PerceptionPipeline {
             return PerceptionResult(
                 timestamp: frame.timestamp, planner: output, candidates: [], grid: OccupancyGrid(tuning: t),
                 floorStatus: floor.status, cameraHeight: floor.cameraHeight(cameraY: cameraY), bodyYaw: nil,
-                trackingNormal: frame.trackingNormal, points: [], corridor: [], headingPath: [], goalPath: [], profile: []
+                trackingNormal: frame.trackingNormal, points: [], corridor: [], headingPath: [], goalPath: [], profile: [],
+                labelMarks: []
             )
         }
 
@@ -238,12 +262,38 @@ final class PerceptionPipeline {
             output.stairs = stairs
         }
 
+        // 6b. Identification: name the obstacle the planner is reacting to, and hazards beside the path.
+        var named: [LabelTrack] = []
+        if identify {
+            poleTracks.rules = t.poleLabelRules
+            let poles = PoleDetector.detect(grid, tuning: t).map { pole in
+                Detection(
+                    label: .pole, confidence: 1, rect: .zero,
+                    world: body.world(forward: pole.forward, lateral: pole.lateral, y: floorY + 1.0)
+                )
+            }
+            poleTracks.ingest(poles, time: frame.timestamp)
+            visionTracks.rules = t.visionLabelRules
+            visionTracks.expire(time: frame.timestamp)
+            // A person standing side-on looks like a pole to the grid. Wherever Vision saw something lately, it wins.
+            let recent = visionTracks.tracks.filter { frame.timestamp - $0.lastDetected <= 1 }
+            let poleNames = poleTracks.confirmed.filter { pole in
+                !recent.contains { simd_distance($0.position, pole.position) < 0.6 }
+            }
+            named = visionTracks.confirmed + poleNames
+            let labels = LabelQuery.evaluate(named, body: body, grid: grid, planner: output, tuning: t)
+            output.nearestLabel = labels.nearest?.label
+            output.nearestLabelTrack = labels.nearest?.id
+            output.sideLabels = labels.side
+        }
+
         // 7. Debug geometry.
         var debugPoints: [PointSample] = []
         var corridor: [SIMD2<Float>] = []
         var headingPath: [SIMD2<Float>] = []
         var goalPath: [SIMD2<Float>] = []
         var profilePoints: [SIMD2<Float>] = []
+        var labelMarks: [LabelMark] = []
         if wantDebug {
             for i in points.indices where points[i].cls == .obstacle {
                 let index = cellIndex[i]
@@ -278,6 +328,13 @@ final class PerceptionPipeline {
             profilePoints = profile.enumerated().compactMap { i, h in
                 h.map { SIMD2(profileStart + (Float(i) + 0.5) * StairDetector.binSize, $0) }
             }
+            labelMarks = named.compactMap { track in
+                guard let label = track.label else { return nil }
+                let world = SIMD3(track.position.x, floorY + 1.0, track.position.y)
+                return Geometry.project(world: world, worldToCamera: worldToCamera, intrinsics: frame.intrinsics).map {
+                    LabelMark(label: label, pixel: $0, isNearest: track.id == output.nearestLabelTrack)
+                }
+            }
         }
 
         return PerceptionResult(
@@ -293,7 +350,8 @@ final class PerceptionPipeline {
             corridor: corridor,
             headingPath: headingPath,
             goalPath: goalPath,
-            profile: profilePoints
+            profile: profilePoints,
+            labelMarks: labelMarks
         )
     }
 

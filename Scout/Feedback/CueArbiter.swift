@@ -19,6 +19,8 @@ struct CueLogEntry: Identifiable, Sendable {
 /// - Stop and Overhead interrupt anything lower, mid-word.
 /// - Lower tiers queue and expire (`queueExpiry`; status and guided cues get longer).
 /// - Silence means clear.
+/// - Obstacle names ride on Stop and steer cues and never add an interruption of their own. Chatty's
+///   side mentions ("Person on your left") play only when nothing else is being said.
 final class CueArbiter {
     var verbosity: Verbosity = .normal
     private(set) var log: [CueLogEntry] = []
@@ -40,6 +42,10 @@ final class CueArbiter {
     private var clearSince: TimeInterval?
     private var lastPulse: Double?
     private var dropSince: TimeInterval?
+    /// Track id to when its name was last spoken, and when it was last the obstacle in the path.
+    private var labelSpoken: [Int: TimeInterval] = [:]
+    private var labelInPath: [Int: TimeInterval] = [:]
+    private var lastSideMention: TimeInterval = -.infinity
     private let maxLog = 300
     private let longExpiry: TimeInterval = 8
 
@@ -52,6 +58,9 @@ final class CueArbiter {
         wasBlocked = false
         clearSince = nil
         dropSince = nil
+        labelSpoken.removeAll()
+        labelInPath.removeAll()
+        lastSideMention = -.infinity
         let hadPulse = lastPulse != nil
         lastPulse = nil
         return hadPulse ? [.pulse(interval: nil)] : []
@@ -72,6 +81,8 @@ final class CueArbiter {
             dropSince = nil
         }
 
+        var name = obstacleName(p, now: now, tuning: t)
+
         // Safety: stairs, drop-off, stop, in that order. Overhead is not spoken: on a chest mount it is
         // wrong too often to be worth interrupting for.
         var safety: (key: String, cue: Cue, why: String)?
@@ -84,7 +95,9 @@ final class CueArbiter {
         } else if let d = confirmedDrop {
             safety = ("step_down", Cue(tier: .stop, phrases: ["step_down"], haptic: .stopBuzz), String(format: "drop-off %.1fm", d))
         } else if p.blocked || (p.pathVisible && p.urgency >= t.stopUrgency) {
-            safety = ("stop", Cue(tier: .stop, phrases: ["stop"], haptic: .stopBuzz), String(format: "urgency %.2f", p.urgency))
+            // The name follows Stop as a second clip, so the time to the first sound does not change.
+            safety = ("stop", Cue(tier: .stop, phrases: ["stop"] + (name.map { [$0.phrase] } ?? []), haptic: .stopBuzz),
+                      String(format: "urgency %.2f", p.urgency))
         }
 
         if let safety {
@@ -92,6 +105,10 @@ final class CueArbiter {
                 lastSafetyKey = safety.key
                 lastSafetyTime = now
                 commands += emit(safety.cue, now: now, tuning: t, reason: safety.why)
+                if safety.key == "stop", name != nil {
+                    markNamed(name, now: now)
+                    name = nil // said once; a steer cue in the same frame does not repeat it
+                }
             }
         } else {
             lastSafetyKey = nil
@@ -115,13 +132,15 @@ final class CueArbiter {
             if key != lastSteerKey || now - lastSteerTime >= t.repeatInterval {
                 lastSteerKey = key
                 lastSteerTime = now
-                var phrases = [key]
+                // What it is, then which way to go.
+                var phrases = (name.map { [$0.phrase] } ?? []) + [key]
                 if verbosity == .chatty, let nearest = p.nearestObstacle {
                     let meters = max(1, min(4, Int(nearest.rounded())))
                     phrases.append("dist_\(meters)")
                 }
                 let why = String(format: "heading %+.0f°, obstacle %.1fm", p.heading * 180 / .pi, p.nearestObstacle ?? 0)
                 commands += emit(Cue(tier: .steer, phrases: phrases), now: now, tuning: t, reason: why)
+                markNamed(name, now: now)
             }
         } else if steerKey == nil {
             lastSteerKey = nil
@@ -140,6 +159,15 @@ final class CueArbiter {
                     commands += emit(Cue(tier: .clear, phrases: ["clear"]), now: now, tuning: t, reason: "path clear")
                 }
             }
+        }
+
+        // Chatty: a named hazard beside the path, only when nothing else is being said.
+        if verbosity == .chatty, safety == nil, steerKey == nil, !isSpeaking, now - lastSideMention >= t.sideMentionInterval,
+           let side = p.sideLabels.first(where: { labelSpoken[$0.track].map { now - $0 >= t.labelRepeatSeconds } ?? true }) {
+            lastSideMention = now
+            labelSpoken[side.track] = now
+            let cue = Cue(tier: .status, phrases: [side.label.phrase, side.onLeft ? "on_left" : "on_right"])
+            commands += emit(cue, now: now, tuning: t, reason: String(format: "%@ beside path at %.1fm", side.label.rawValue, side.distance))
         }
 
         // Proximity pulse: faster as the obstacle ahead gets closer.
@@ -173,6 +201,28 @@ final class CueArbiter {
     }
 
     // MARK: - Policy
+
+    /// The name to add to this frame's Stop or steer cue, if any: spoken at this verbosity, and not already said
+    /// for this object in the last `labelRepeatSeconds` unless it left the path for 3 s and came back.
+    private func obstacleName(_ p: PlannerOutput, now: TimeInterval, tuning t: Tuning) -> (label: ObstacleLabel, track: Int, phrase: String)? {
+        guard let label = p.nearestLabel, let track = p.nearestLabelTrack else { return nil }
+        let returning = labelInPath[track].map { now - $0 >= 3 } ?? true
+        labelInPath[track] = now
+        if labelInPath.count > 64 {
+            labelInPath = labelInPath.filter { now - $0.value < 60 }
+            labelSpoken = labelSpoken.filter { now - $0.value < 60 }
+        }
+        guard label.isSpoken(at: verbosity) else { return nil }
+        if let spoken = labelSpoken[track], now - spoken < t.labelRepeatSeconds, !returning { return nil }
+        return (label, track, label.phrase)
+    }
+
+    /// Call after emitting a cue that carried `name`. A dropped cue still counts; the name comes back with the
+    /// next repeat of the cue only after `labelRepeatSeconds`, which is the price of never stuttering.
+    private func markNamed(_ name: (label: ObstacleLabel, track: Int, phrase: String)?, now: TimeInterval) {
+        guard let name else { return }
+        labelSpoken[name.track] = now
+    }
 
     private func emit(_ cue: Cue, now: TimeInterval, tuning t: Tuning, reason: String) -> [FeedbackCommand] {
         var commands: [FeedbackCommand] = []
