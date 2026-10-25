@@ -22,7 +22,7 @@ These are decided. Do not revisit them without asking the team.
 | Haptics | Phone vibration only | The whole phone vibrates against the sternum, so vibration cannot say left or right. Use it for urgency and for distinct events. |
 | Modes | **Guided**: obstacle guidance plus GPS route to a destination. **Passive**: obstacle guidance only, no destination, no GPS. | Passive is the default and must be complete on its own. Guided is built last. |
 | Obstacle identification | Leave room for it in the data model; do not build it | Detection (something is there) ships first. Identification (it is a person, a pole) comes after everything else works. |
-| Language | Swift 6, SwiftUI, ARKit, CoreHaptics, AVFoundation | Minimum iOS 17. No third-party dependencies for the core pipeline. |
+| Language | Swift (Swift 5 language mode on the Swift 6 compiler), SwiftUI, ARKit, CoreHaptics, AVFoundation | Minimum iOS 17. No third-party dependencies for the core pipeline. Swift 5 mode avoids strict-concurrency churn during the hackathon; the pipeline runs on one serial queue. |
 | Testers | A blind tester is available for the demo | See section 10 for the test protocol. |
 
 ---
@@ -184,9 +184,9 @@ Vibration encodes how urgent, never which way. Do not invent left/right vibratio
 
 ### 6.2 Speech source
 
-Generate every fixed phrase once with ElevenLabs, using a script in `tools/generate_cues/`, and bundle the audio files in the app. Fixed phrases cover the Stop, Steer, Overhead, Clear, and most Status cues, plus the numbers 1 to 10 and "meters". Bundled clips play with no network and no delay, and keep the voice consistent.
+Generate every fixed phrase once with ElevenLabs, using a script in `tools/generate_cues/`, and bundle the audio files in the app. Fixed phrases cover the Stop, Steer, Overhead, Clear, and most Status cues, plus distances of one to four meters (the sensor's useful range). Bundled clips play with no network and no delay, and keep the voice consistent.
 
-For dynamic text (street names in Guided mode), use ElevenLabs streaming if the network answers within 400 ms, and fall back to `AVSpeechSynthesizer` otherwise. Never route Stop, Steer, or Overhead through the network.
+For dynamic text (street names in Guided mode), use `AVSpeechSynthesizer`. ElevenLabs streaming would need the API key in the app, which section 6.2's key rule forbids. Never route Stop, Steer, or Overhead through the network.
 
 The ElevenLabs API key belongs only in the generation script's environment, never in the app.
 
@@ -264,7 +264,7 @@ Each phase ends with a gate. Do not start the next phase until the gate passes, 
 4. **Grid and planner, with top-down and side views.** *Gate:* replaying a cluttered hallway walk gives a stable heading with no left-right flipping.
 5. **Cues: bundled voice and vibration.** *Gate:* the Stop cue plays in airplane mode in under 100 ms from the triggering frame, measured in the cue log.
 6. **Passive mode end to end, Siri intents, verbosity.** *Gate:* the blind tester walks an indoor course safely with a cane and a spotter, and says the cues help more than they distract.
-7. **Guided mode.** Port Shepherd's routing and heading fusion. *Gate:* one short outdoor route end to end.
+7. **Guided mode.** Walking routes from MapKit (no API key), and ARKit `.gravityAndHeading` for a north-aligned body heading instead of Shepherd's ORS routing and custom compass fusion. *Gate:* one short outdoor route end to end.
 8. **Identification** (section 8), only if time remains.
 
 If time runs short, cut Guided mode before cutting replay, drop-off detection, or the camera overlay.
