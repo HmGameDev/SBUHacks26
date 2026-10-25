@@ -41,6 +41,8 @@ struct PerceptionResult: Sendable {
     let labelMarks: [LabelMark]
     /// An unnamed obstacle far enough ahead to ask Gemini about (identification only).
     let cloudRequest: CloudRequest?
+    /// Why the obstacle ahead is or is not being named, for the debug view (identification only).
+    var labelStatus = ""
 }
 
 struct CloudRequest: Sendable, Equatable {
@@ -297,6 +299,7 @@ final class PerceptionPipeline {
         // 6b. Identification: name the obstacle the planner is reacting to, and hazards beside the path.
         var named: [LabelTrack] = []
         var cloudRequest: CloudRequest?
+        var labelStatus = ""
         if identify {
             poleTracks.rules = t.poleLabelRules
             let poles = PoleDetector.detect(grid, tuning: t).map { pole in
@@ -318,6 +321,10 @@ final class PerceptionPipeline {
             output.nearestLabel = labels.nearest?.label
             output.nearestLabelTrack = labels.nearest?.id
             output.sideLabels = labels.side
+            labelStatus = LabelQuery.status(
+                nearest: labels.nearest, named: named, candidates: visionTracks.tracks.count + poleTracks.tracks.count,
+                body: body, grid: grid, planner: output, tuning: t
+            )
 
             // Gemini names, only for what the phone could not name.
             let now = frame.timestamp
@@ -330,6 +337,7 @@ final class PerceptionPipeline {
                 output.nearestCloudName = spot.name.name
                 output.nearestCloudHazard = spot.name.hazard
                 output.nearestLabelTrack = spot.id
+                labelStatus = "Naming \(spot.name.name.lowercased()) (Gemini)" + (spot.name.hazard ? "" : ", Chatty only")
             }
             // Ask early, while the obstacle is still far enough away for the answer to arrive in time.
             if let ahead = output.nearestObstacle, ahead > t.cloudMinDistance, ahead < t.maxRange - 0.2 {
@@ -410,7 +418,8 @@ final class PerceptionPipeline {
             goalPath: goalPath,
             profile: profilePoints,
             labelMarks: labelMarks,
-            cloudRequest: cloudRequest
+            cloudRequest: cloudRequest,
+            labelStatus: labelStatus
         )
     }
 
