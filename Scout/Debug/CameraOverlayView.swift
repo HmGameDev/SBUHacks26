@@ -162,7 +162,7 @@ struct CameraOverlayView: View {
         }
         for mark in snapshot.labelMarks {
             let at = mapper.point(mark.pixel)
-            let text = Text(mark.label.rawValue.uppercased()).font(.caption.bold()).foregroundStyle(.black)
+            let text = Text(mark.text.uppercased()).font(.caption.bold()).foregroundStyle(.black)
             let size = context.resolve(text).measure(in: CGSize(width: 200, height: 40))
             let tag = CGRect(x: at.x - size.width / 2 - 6, y: at.y - size.height / 2 - 3, width: size.width + 12, height: size.height + 6)
             context.fill(Path(roundedRect: tag, cornerRadius: 6), with: .color(mark.isNearest ? .yellow : .white.opacity(0.85)))

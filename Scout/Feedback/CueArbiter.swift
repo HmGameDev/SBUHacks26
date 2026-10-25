@@ -204,22 +204,34 @@ final class CueArbiter {
 
     /// The name to add to this frame's Stop or steer cue, if any: spoken at this verbosity, and not already said
     /// for this object in the last `labelRepeatSeconds` unless it left the path for 3 s and came back.
-    private func obstacleName(_ p: PlannerOutput, now: TimeInterval, tuning t: Tuning) -> (label: ObstacleLabel, track: Int, phrase: String)? {
-        guard let label = p.nearestLabel, let track = p.nearestLabelTrack else { return nil }
+    /// A phone label plays its bundled clip; a Gemini name is spoken with the iPhone voice.
+    private func obstacleName(_ p: PlannerOutput, now: TimeInterval, tuning t: Tuning) -> (track: Int, phrase: String)? {
+        guard let track = p.nearestLabelTrack else { return nil }
+        let phrase: String
+        let tier: LabelTier
+        if let label = p.nearestLabel {
+            phrase = label.phrase
+            tier = label.tier
+        } else if let name = p.nearestCloudName {
+            phrase = CuePhrases.sayPrefix + name
+            tier = p.nearestCloudHazard ? .hazard : .common
+        } else {
+            return nil
+        }
         let returning = labelInPath[track].map { now - $0 >= 3 } ?? true
         labelInPath[track] = now
         if labelInPath.count > 64 {
             labelInPath = labelInPath.filter { now - $0.value < 60 }
             labelSpoken = labelSpoken.filter { now - $0.value < 60 }
         }
-        guard label.isSpoken(at: verbosity) else { return nil }
+        guard tier.isSpoken(at: verbosity) else { return nil }
         if let spoken = labelSpoken[track], now - spoken < t.labelRepeatSeconds, !returning { return nil }
-        return (label, track, label.phrase)
+        return (track, phrase)
     }
 
     /// Call after emitting a cue that carried `name`. A dropped cue still counts; the name comes back with the
     /// next repeat of the cue only after `labelRepeatSeconds`, which is the price of never stuttering.
-    private func markNamed(_ name: (label: ObstacleLabel, track: Int, phrase: String)?, now: TimeInterval) {
+    private func markNamed(_ name: (track: Int, phrase: String)?, now: TimeInterval) {
         guard let name else { return }
         labelSpoken[name.track] = now
     }

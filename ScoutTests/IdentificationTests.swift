@@ -14,6 +14,37 @@ final class IdentificationTests: XCTestCase {
         XCTAssertFalse(ObstacleLabel.chair.isSpoken(at: .normal))
         XCTAssertTrue(ObstacleLabel.chair.isSpoken(at: .chatty))
         XCTAssertFalse(ObstacleLabel.person.isSpoken(at: .minimal))
+        XCTAssertTrue(ObstacleLabel.door.isSpoken(at: .normal), "doors matter for finding the way")
+        XCTAssertFalse(ObstacleLabel.desk.isSpoken(at: .normal))
+        XCTAssertEqual(ObstacleLabel.trashCan.phrase, "label_trash_can")
+    }
+
+    func testOpenImagesMappingLeavesPeopleToApple() {
+        XCTAssertEqual(ObstacleLabel.openImages["Door"], .door)
+        XCTAssertEqual(ObstacleLabel.openImages["Desk"], .desk)
+        XCTAssertEqual(ObstacleLabel.openImages["Waste container"], .trashCan)
+        XCTAssertNil(ObstacleLabel.openImages["Person"])
+        XCTAssertNil(ObstacleLabel.openImages["Stairs"], "stairs come from depth, not the camera")
+    }
+
+    func testBundledDetectorIsInTheApp() {
+        XCTAssertNotNil(Bundle(for: CueArbiter.self).url(forResource: "ObstacleDetector", withExtension: "mlmodelc"))
+    }
+
+    // MARK: - Gemini
+
+    func testGeminiReplyParsing() {
+        XCTAssertEqual(CloudNamer.parse("recycling bin | no"), CloudName(name: "Recycling bin", hazard: false))
+        XCTAssertEqual(CloudNamer.parse("Electric scooter | Yes."), CloudName(name: "Electric scooter", hazard: true))
+        XCTAssertEqual(CloudNamer.parse("\"Glass door\" | no\n"), CloudName(name: "Glass door", hazard: false))
+        XCTAssertNil(CloudNamer.parse("unknown"))
+        XCTAssertNil(CloudNamer.parse("a large metal object that might be a sculpture | no"), "too long to speak")
+        XCTAssertNil(CloudNamer.parse(""))
+    }
+
+    func testGeminiResponseParsing() throws {
+        let json = #"{"candidates":[{"content":{"parts":[{"text":"wet floor sign | no"}],"role":"model"}}]}"#
+        XCTAssertEqual(CloudNamer.parse(response: Data(json.utf8)), CloudName(name: "Wet floor sign", hazard: false))
     }
 
     func testEveryLabelHasAPhrase() throws {

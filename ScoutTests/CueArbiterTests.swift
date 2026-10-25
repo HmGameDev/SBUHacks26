@@ -7,11 +7,13 @@ final class CueArbiterTests: XCTestCase {
     func planner(
         heading degrees: Float = 0, urgency: Float = 0, nearest: Float? = nil, drop: Float? = nil,
         overhead: Float? = nil, stairs: StairInfo? = nil, label: ObstacleLabel? = nil, track: Int = 1,
-        side: [SideLabel] = []
+        side: [SideLabel] = [], cloud: String? = nil, cloudHazard: Bool = false
     ) -> PlannerOutput {
         var p = PlannerOutput()
         p.nearestLabel = label
-        p.nearestLabelTrack = label == nil ? nil : track
+        p.nearestCloudName = cloud
+        p.nearestCloudHazard = cloudHazard
+        p.nearestLabelTrack = label == nil && cloud == nil ? nil : track
         p.sideLabels = side
         p.pathVisible = true
         p.heading = degrees * .pi / 180
@@ -247,5 +249,28 @@ final class CueArbiterTests: XCTestCase {
         let arbiter = CueArbiter()
         let side = [SideLabel(label: .person, track: 7, onLeft: true, distance: 1.2)]
         XCTAssertTrue(spoken(arbiter.update(planner(side: side), now: 0, tuning: tuning)).isEmpty)
+    }
+
+    func testNormalNamesADoor() {
+        let arbiter = CueArbiter()
+        let commands = arbiter.update(planner(heading: -30, urgency: 0.4, nearest: 1.5, label: .door), now: 0, tuning: tuning)
+        XCTAssertEqual(spoken(commands).first?.0.phrases, ["label_door", "left"])
+    }
+
+    func testGeminiNameIsSpokenAsText() {
+        let arbiter = CueArbiter()
+        let p = planner(heading: 30, urgency: 0.4, nearest: 1.5, cloud: "Scooter", cloudHazard: true, track: 2_000_000)
+        let cue = spoken(arbiter.update(p, now: 0, tuning: tuning)).first?.0
+        XCTAssertEqual(cue?.phrases, ["say:Scooter", "right"])
+        XCTAssertEqual(cue?.text, "Scooter. Right.")
+    }
+
+    func testNormalSkipsHarmlessGeminiNames() {
+        let arbiter = CueArbiter()
+        let p = planner(heading: 30, urgency: 0.4, nearest: 1.5, cloud: "Recycling bin", track: 2_000_000)
+        XCTAssertEqual(spoken(arbiter.update(p, now: 0, tuning: tuning)).first?.0.phrases, ["right"])
+        let chatty = CueArbiter()
+        chatty.verbosity = .chatty
+        XCTAssertEqual(spoken(chatty.update(p, now: 0, tuning: tuning)).first?.0.phrases, ["say:Recycling bin", "right", "dist_2"])
     }
 }

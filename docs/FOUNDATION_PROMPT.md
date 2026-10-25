@@ -189,6 +189,8 @@ For dynamic text (directions and street names in Guided mode), use live ElevenLa
 
 The team chose (2026-10-25) to ship the ElevenLabs key inside the demo app for live directions: it comes from a gitignored `Scout/Secrets.plist` or the Settings screen, never from git. Anyone with the app binary can extract it, so use a key with a low spending limit.
 
+The team also chose (2026-10-25) to let the app hold a Gemini key, the same way, for naming obstacles the phone's detector cannot (section 8). Gemini never decides whether something is an obstacle and no cue waits for it.
+
 ### 6.3 Speaker rules
 
 - Audio session: `.playback` category with `.duckOthers`, so cues play with the silent switch on and lower other audio.
@@ -243,9 +245,10 @@ The camera overlay should always render at reduced cost (downsampled points, 15 
 The team chose to build steps 1 to 3 of the identification plan before the gate 6 walk, behind **Settings > Name obstacles**, off by default. Turn it on for the tester only after Passive mode passes gate 6 with it off. Plan: https://claude.ai/artifact/7hXD4tRR26gGwYNLwd3YdZ
 
 - **Rule:** the camera only names obstacles the depth grid already holds. It never creates, removes, or delays a cue. Stop plays its own clip first; the name follows ("Stop. Person.").
-- **Tiers:** Hazard (person, bike, motorbike, vehicle, dog, pole) is named in Normal and Chatty when it is the obstacle the planner reacts to. Common (chair, bench, table, couch, plant, bag, hydrant, parking meter) is named in Chatty only. Chatty also says "Person. On your left." for a hazard just outside the corridor. Minimal never names anything. Each object is named once, again after 10 s or after it left the path for 3 s.
+- **Tiers:** Hazard (person, bike, motorbike, vehicle, dog, pole, door, wheelchair, cart, tree) is named in Normal and Chatty when it is the obstacle the planner reacts to. Common (chair, bench, table, desk, couch, bed, shelf, cabinet, plant, bag, hydrant, parking meter, trash can, box) is named in Chatty only. Chatty also says "Person. On your left." for a hazard just outside the corridor. Minimal never names anything. Each object is named once, again after 10 s or after it left the path for 3 s.
 - **Sources:** Vision's `VNDetectHumanRectanglesRequest` and `VNRecognizeAnimalsRequest` at 5 Hz (2 Hz when warm) on their own queue; `LabelFusion` places each box with the depth inside it; `LabelTracker` confirms a name seen in 3 of the last 5 runs. Poles come from the grid (`PoleDetector`), confirmed in 12 of 20 frames, at least 0.6 s old, and standing still. Vision overrides a pole wherever it has seen something in the last second.
-- **Next (step 4):** a COCO Core ML detector (YOLO11n, AGPL-3.0, accepted for the hackathon) for bikes, cars, and furniture, mapped onto the same labels.
+- **Step 4 (done):** `ObstacleDetector.mlpackage`, YOLOv8n trained on Open Images V7 (600 classes, AGPL-3.0, accepted for the hackathon), runs in the same Vision pass for doors, furniture, vehicles, and street objects, mapped onto the same labels (`ObstacleLabel.openImages`). People and dogs stay with Apple's detectors. Rebuild it with `yolo export model=yolov8n-oiv7.pt format=coreml nms=True imgsz=416`.
+- **Gemini layer:** when the obstacle ahead has no phone label and is more than 2.5 m away, the app sends one photo to Gemini (`gemini-3.5-flash-lite`, `CloudNamer`) at most every 2 s, and asks again about the same spot only after 15 s. A reply of "name | yes/no" is held at that spot for 30 s; "yes" makes it a hazard. Live only, never in replay. With no key or no signal nothing changes.
 
 Do not name the protocol `ObjectIdentifier`; that is a Swift standard library type.
 

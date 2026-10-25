@@ -81,6 +81,8 @@ struct Tuning: Codable, Equatable, Sendable {
     var detectorHz: Double = 5
     var detectorHzWarm: Double = 2
     var detectorMinConfidence: Float = 0.5
+    /// The bundled Open Images detector scores lower than Apple's people and dog detectors.
+    var objectMinConfidence: Float = 0.35
     /// A name is confirmed once it shows up in `labelVotesNeeded` of the last `labelVoteWindow` runs.
     var labelVoteWindow: Int = 5
     var labelVotesNeeded: Int = 3
@@ -92,6 +94,12 @@ struct Tuning: Codable, Equatable, Sendable {
     var labelRepeatSeconds: Double = 10
     var sideMentionDistance: Float = 2.0
     var sideMentionInterval: Double = 4
+    /// Gemini is only asked about unnamed obstacles farther than this, one request every `cloudMinInterval`.
+    var cloudMinDistance: Float = 2.5
+    var cloudMinInterval: Double = 2
+    /// A spot already asked about is not asked again for this long; an answer is kept this long.
+    var cloudRetrySeconds: Double = 15
+    var cloudHoldSeconds: Double = 30
     // Poles from geometry (PoleDetector); votes are per frame.
     var poleMaxCells: Int = 3
     var poleMinTop: Float = 1.2

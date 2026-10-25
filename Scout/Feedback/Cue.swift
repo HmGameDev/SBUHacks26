@@ -101,7 +101,11 @@ struct CuePhrases {
     /// Phrases the app may play. Reserved ones are cues it no longer plays (Duck), kept so old notes still make sense.
     var active: [Phrase] { all.filter { $0.reserved != true } }
 
+    /// `say:<words>` is dynamic text inside a phrase list (a Gemini name); it is spoken with the iPhone voice.
     func text(for id: String) -> String {
-        texts[id] ?? id.replacingOccurrences(of: "_", with: " ").capitalized + "."
+        if id.hasPrefix(Self.sayPrefix) { return String(id.dropFirst(Self.sayPrefix.count)) + "." }
+        return texts[id] ?? id.replacingOccurrences(of: "_", with: " ").capitalized + "."
     }
+
+    static let sayPrefix = "say:"
 }

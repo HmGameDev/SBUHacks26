@@ -446,7 +446,15 @@ final class AppModel {
         options.thermalThrottle = thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         options.alignToNorth = mode == .guided
         options.identify = preferencesStore.preferences.nameObstacles
+        options.cloudKey = geminiKey
+        options.cloudModel = Secrets.geminiModel ?? CloudNamer.defaultModel
         return options
+    }
+
+    /// Settings first, then `Secrets.plist`.
+    private var geminiKey: String {
+        let typed = preferencesStore.preferences.geminiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return typed.isEmpty ? (Secrets.geminiKey ?? "") : typed
     }
 
     private func observeTuning() {
@@ -465,11 +473,16 @@ final class AppModel {
     private func observeNameObstacles() {
         withObservationTracking {
             _ = preferencesStore.preferences.nameObstacles
+            _ = preferencesStore.preferences.geminiKey
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
                 let identify = self.preferencesStore.preferences.nameObstacles
-                self.runner.update { $0.identify = identify }
+                let key = self.geminiKey
+                self.runner.update {
+                    $0.identify = identify
+                    $0.cloudKey = key
+                }
                 self.observeNameObstacles()
             }
         }

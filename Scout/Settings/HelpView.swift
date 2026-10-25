@@ -69,7 +69,7 @@ struct HelpView: View {
             } header: {
                 Text("Obstacle names")
             } footer: {
-                Text("Only with Name obstacles turned on in Settings. Normal names people, poles, bikes, cars, and dogs in your way. Chatty also names furniture, and people beside your path. A name is said once per object.")
+                Text("Only with Name obstacles turned on in Settings. Normal names people, dogs, poles, doors, bikes, cars, and trees in your way. Chatty also names furniture like tables, desks, and chairs, and people beside your path. With a Gemini key, other things farther away get a name too. A name is said once per object.")
             }
 
             Section("Before you walk") {

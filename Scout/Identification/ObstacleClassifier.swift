@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreML
 import ImageIO
 import Vision
 
@@ -27,11 +28,15 @@ final class NullClassifier: ObstacleClassifier {
     func classify(_ image: CGImage) -> [ClassifiedBox] { [] }
 }
 
-/// Apple's built-in Vision detectors: people and dogs. No model file, no network.
+/// Everything on the phone, no network: Apple's built-in people and dog detectors, plus the bundled
+/// `ObstacleDetector` (YOLOv8n, Open Images V7, 600 classes) for doors, furniture, vehicles, and street objects.
 /// The phone is portrait on the chest, so the landscape sensor image is upright when rotated to `.right`,
 /// the same assumption `PortraitMapper` makes for the debug view.
 final class VisionClassifier: ObstacleClassifier {
+    /// For Apple's detectors.
     var minConfidence: Float = 0.5
+    /// For the bundled detector, whose scores run lower.
+    var objectMinConfidence: Float = 0.35
 
     private let humans: VNDetectHumanRectanglesRequest = {
         let request = VNDetectHumanRectanglesRequest()
@@ -40,11 +45,26 @@ final class VisionClassifier: ObstacleClassifier {
         return request
     }()
     private let animals = VNRecognizeAnimalsRequest()
+    /// Nil if the model is missing from the bundle; people and dogs still work.
+    private let objects: VNCoreMLRequest? = {
+        guard let url = Bundle.main.url(forResource: "ObstacleDetector", withExtension: "mlmodelc"),
+              let model = try? MLModel(contentsOf: url, configuration: MLModelConfiguration()),
+              let vision = try? VNCoreMLModel(for: model) else { return nil }
+        // The exported model takes its thresholds as inputs. Keep them loose; `objectMinConfidence` and the
+        // tracker's vote do the filtering.
+        vision.featureProvider = try? MLDictionaryFeatureProvider(dictionary: ["iouThreshold": 0.5, "confidenceThreshold": 0.2])
+        let request = VNCoreMLRequest(model: vision)
+        // Stretch the whole frame onto the square input, so boxes cover the full image and map back directly.
+        request.imageCropAndScaleOption = .scaleFill
+        return request
+    }()
 
     func classify(_ image: CGImage) -> [ClassifiedBox] {
         let handler = VNImageRequestHandler(cgImage: image, orientation: .right, options: [:])
+        var requests: [VNRequest] = [humans, animals]
+        if let objects { requests.append(objects) }
         do {
-            try handler.perform([humans, animals])
+            try handler.perform(requests)
         } catch {
             return []
         }
@@ -59,6 +79,13 @@ final class VisionClassifier: ObstacleClassifier {
                   top.confidence >= minConfidence else { continue }
             boxes.append(ClassifiedBox(
                 label: .dog, confidence: top.confidence, rect: Self.sensorRect(fromUpright: observation.boundingBox)
+            ))
+        }
+        for case let observation as VNRecognizedObjectObservation in objects?.results ?? [] {
+            guard let top = observation.labels.first, top.confidence >= objectMinConfidence,
+                  let label = ObstacleLabel.openImages[top.identifier] else { continue }
+            boxes.append(ClassifiedBox(
+                label: label, confidence: top.confidence, rect: Self.sensorRect(fromUpright: observation.boundingBox)
             ))
         }
         return boxes

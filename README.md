@@ -13,6 +13,10 @@ The design, constraints, and phase gates are in [docs/FOUNDATION_PROMPT.md](docs
 
 Without generated clips the app speaks every cue with on-device speech, which is fine for development. For the demo, generate the ElevenLabs clips (see [tools/generate_cues](tools/generate_cues/README.md)) and rebuild. Rerun it after pulling new phrases (for example `stairs_up` and `stairs_down`).
 
+### Obstacle names with Gemini (optional)
+
+Settings > Name obstacles names doors, furniture, and street objects on the phone with no key. To name other things too, paste a Gemini key under it, or add `GEMINI_API_KEY` to `Scout/Secrets.plist`. Scout then sends one camera photo to Google when an unnamed obstacle is more than 2.5 m ahead. Use a key with a low spending limit; anyone with the app can extract it.
+
 ### AI voice for directions (optional)
 
 Spoken directions and search results can use live ElevenLabs. Either paste a key in the app (Settings, AI voice for directions; it is saved on the phone), or copy [docs/Secrets.example.plist](docs/Secrets.example.plist) to `Scout/Secrets.plist`, fill in the key, and build:
@@ -66,14 +70,14 @@ Tap **Debug view**. Mirror the phone to a Mac with AirPlay so a teammate can wat
 - The portrait field of view is about plus or minus 24 degrees horizontally, so obstacles more than about half a meter to the side at one meter are not seen until the user turns toward them.
 - The LiDAR cannot see the floor right under the user; the tilt-down mount and the inferred drop-off (floor that suddenly disappears) cover most of that.
 - Changing the `Tuning` struct's fields resets saved tuning to defaults on next launch.
-- Obstacle names: only people, dogs, and poles so far. The other names in the list (bikes, cars, furniture) arrive with a Core ML detector (step 4 of the identification plan). The pole rule was checked in a ray-cast simulation, not on a phone, and a person standing side-on can look like a pole to it; Vision overrides it wherever it sees something. The detector assumes the phone is upright in portrait, as the camera view does.
+- Obstacle names: people and dogs (Apple's detectors), doors, furniture, vehicles, and street objects (bundled YOLOv8n Open Images model, AGPL-3.0), and poles (depth). With a Gemini key in Settings or `Secrets.plist`, Gemini names other obstacles more than 2.5 m away; that sends a camera photo to Google. None of this has run on a phone. The pole rule was checked in a ray-cast simulation, not on a phone, and a person standing side-on can look like a pole to it; Vision overrides it wherever it sees something. The detector assumes the phone is upright in portrait, as the camera view does.
 
 ## Layout
 
 ```
 Scout/            App sources (App, Capture, Perception, Feedback, Navigation, Identification, Debug)
 ScoutTests/       Unit tests
-tools/generate_cues/  ElevenLabs clip generator (the only place the API key is used)
+tools/generate_cues/  ElevenLabs clip generator for the bundled cues
 reference/shepherd/   Read-only reference from Shepherd; not in the build
 docs/                 Foundation prompt
 ```

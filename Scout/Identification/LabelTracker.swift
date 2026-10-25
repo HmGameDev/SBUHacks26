@@ -191,15 +191,11 @@ enum LabelQuery {
 
         // The named obstacle must be the one the planner is reacting to: in the corridor, at the distance of
         // the obstacle straight ahead.
-        if let ahead = p.nearestObstacle {
-            for track in tracks {
-                let (f, l) = body.local(SIMD3(track.position.x, 0, track.position.y))
-                guard f <= t.labelMaxDistance, f >= ahead - 0.3, f <= ahead + 0.7, abs(l) <= half + 0.2,
-                      hasSupport(grid: grid, forward: f, lateral: l) else { continue }
-                if f < nearestForward - 0.3 {
-                    result.nearest = track
-                    nearestForward = f
-                }
+        for track in tracks {
+            guard let f = inPath(track.position, body: body, grid: grid, planner: p, tuning: t) else { continue }
+            if f < nearestForward - 0.3 {
+                result.nearest = track
+                nearestForward = f
             }
         }
 
@@ -212,6 +208,18 @@ enum LabelQuery {
         }
         result.side.sort { $0.distance < $1.distance }
         return result
+    }
+
+    /// The forward distance of a world spot (x, z) if it is the obstacle the planner is reacting to: in the
+    /// corridor, within `labelMaxDistance`, at the distance of the obstacle straight ahead, with LiDAR under it.
+    static func inPath(
+        _ spot: SIMD2<Float>, body: BodyFrame, grid: OccupancyGrid, planner p: PlannerOutput, tuning t: Tuning
+    ) -> Float? {
+        guard let ahead = p.nearestObstacle else { return nil }
+        let (f, l) = body.local(SIMD3(spot.x, 0, spot.y))
+        guard f <= t.labelMaxDistance, f >= ahead - 0.3, f <= ahead + 0.7, abs(l) <= t.corridorWidth / 2 + 0.2,
+              hasSupport(grid: grid, forward: f, lateral: l) else { return nil }
+        return f
     }
 
     /// An obstacle cell within 0.3 m of the spot.

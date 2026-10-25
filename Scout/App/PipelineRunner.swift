@@ -41,6 +41,9 @@ final class PipelineRunner {
         var alignToNorth = false
         /// Settings > Name obstacles.
         var identify = false
+        /// Gemini key and model for naming what the phone cannot; empty key turns it off.
+        var cloudKey = ""
+        var cloudModel = CloudNamer.defaultModel
     }
 
     /// Delivered on the pipeline queue.
@@ -56,6 +59,9 @@ final class PipelineRunner {
     /// Bumped whenever a source attaches, so a detector run from an earlier session is thrown away.
     private var classifierGeneration = 0
     private var lastDetections: [Detection] = []
+    private let cloud = CloudNamer()
+    private var cloudBusy = false
+    private var lastCloudAsk: TimeInterval = -.infinity
     private var source: FrameSource?
     private var recorder: SessionRecorder?
     private var options = Options()
@@ -143,6 +149,7 @@ final class PipelineRunner {
         perception.identify = options.identify
         classifierGeneration += 1
         lastDetections = []
+        lastCloudAsk = -.infinity
         plannerHash = 0xcbf2_9ce4_8422_2325
         frameCount = 0
         recentFrameTimes.removeAll()
@@ -186,6 +193,7 @@ final class PipelineRunner {
         let wantsDebug = options.wantsDebug && frame.timestamp - lastDebugTime >= 1.0 / 15.0
         let result = perception.process(frame, goalHeading: goalHeading, wantDebug: wantsDebug)
         scheduleDetection(for: frame)
+        if let request = result.cloudRequest { askCloud(request, frame: frame) }
 
         frameCount += 1
         foldIntoHash(result.planner)
@@ -236,6 +244,7 @@ final class PipelineRunner {
         let classifier = self.classifier
         let work = { () -> [Detection] in
             classifier.minConfidence = tuning.detectorMinConfidence
+            classifier.objectMinConfidence = tuning.objectMinConfidence
             return LabelFusion.fuse(
                 classifier.classify(image), depth: frame.depth, intrinsics: frame.intrinsics,
                 cameraTransform: frame.cameraTransform, maxRange: tuning.maxRange
@@ -254,6 +263,26 @@ final class PipelineRunner {
                 self.classifying = false
                 guard generation == self.classifierGeneration else { return }
                 self.deliver(detections, time: frame.timestamp)
+            }
+        }
+    }
+
+    /// Asks Gemini about an unnamed obstacle that is still far away. Live only: replays stay offline and repeatable.
+    private func askCloud(_ request: CloudRequest, frame: FrameBundle) {
+        guard options.identify, !isReplay, !cloudBusy, !options.cloudKey.isEmpty,
+              frame.timestamp - lastCloudAsk >= options.tuning.cloudMinInterval,
+              let image = frame.colorImage else { return }
+        cloud.apiKey = options.cloudKey
+        cloud.model = options.cloudModel
+        cloudBusy = true
+        lastCloudAsk = frame.timestamp
+        perception.noteCloudAsked(request.spot, time: frame.timestamp)
+        let generation = classifierGeneration
+        cloud.name(image: image, distance: request.distance) { name in
+            self.queue.async {
+                self.cloudBusy = false
+                guard generation == self.classifierGeneration else { return }
+                self.perception.ingestCloud(name, at: request.spot, time: frame.timestamp)
             }
         }
     }
