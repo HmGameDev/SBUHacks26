@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var showDebug = false
     @State private var showSettings = false
     @State private var showHelp = false
+    @State private var showCamera = false
     @FocusState private var destinationFocused: Bool
 
     var body: some View {
@@ -16,10 +17,16 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     statusCard
-                    if prefs.preferences.showCamera {
-                        cameraCard
+                    startButton
+                    if model.isRunning && prefs.preferences.showCamera && !showCamera {
+                        Button { showCamera = true } label: {
+                            Label("Show camera view", systemImage: "camera.viewfinder")
+                                .font(.title3.bold())
+                                .frame(maxWidth: .infinity, minHeight: 56)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Theme.card)
                     }
-                    startButton(height: prefs.preferences.showCamera ? 120 : 200)
 
                     VStack(spacing: 10) {
                         CardButton(
@@ -41,7 +48,7 @@ struct HomeView: View {
                     }
 
                     Toggle(isOn: $prefs.preferences.showCamera) {
-                        Label("Show camera view", systemImage: "camera.viewfinder").font(.title3)
+                        Label("Open camera view after Start", systemImage: "camera.viewfinder").font(.title3)
                     }
                     .tint(Theme.accent)
                     .padding(16)
@@ -78,8 +85,13 @@ struct HomeView: View {
             }
         }
         .tint(Theme.accent)
-        .onAppear { model.cameraPreviewVisible = prefs.preferences.showCamera }
-        .onChange(of: prefs.preferences.showCamera) { _, show in model.cameraPreviewVisible = show }
+        // The camera view opens on its own screen after Start, so it never shrinks the Start button.
+        .onChange(of: model.isRunning) { _, running in
+            if running && prefs.preferences.showCamera && !model.isReplaying { showCamera = true }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            LiveCameraView().environment(model)
+        }
         .sheet(isPresented: $showSettings) { SettingsView().environment(model) }
         .sheet(isPresented: $showHelp) { HelpView().environment(model) }
         .fullScreenCover(isPresented: $showDebug, onDismiss: { model.debugVisible = false }) {
@@ -114,18 +126,19 @@ struct HomeView: View {
         }
     }
 
-    private func startButton(height: CGFloat) -> some View {
+    /// Takes most of the screen: it is the one control that matters, and it has to be easy to hit by feel.
+    private var startButton: some View {
         Button {
             model.toggle()
         } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
                 Image(systemName: model.isRunning ? "stop.fill" : "play.fill")
-                    .font(.system(size: height > 150 ? 64 : 40, weight: .bold))
+                    .font(.system(size: 96, weight: .bold))
                 Text(model.isRunning ? "Stop" : "Start")
-                    .font(.largeTitle.bold())
+                    .font(.system(size: 56, weight: .heavy, design: .rounded))
             }
             .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, minHeight: height)
+            .frame(maxWidth: .infinity, minHeight: 360)
             .background(model.isRunning ? Theme.stop : Theme.go, in: RoundedRectangle(cornerRadius: 28))
         }
         .buttonStyle(.plain)
@@ -133,22 +146,6 @@ struct HomeView: View {
         .accessibilityLabel(model.isRunning ? "Stop guidance" : "Start guidance")
         .accessibilityValue(model.statusMessage)
         .accessibilityHint("Start, then stand still for two seconds while it finds the floor. You can also say, Hey Siri, start Wayfinder.")
-    }
-
-    @ViewBuilder
-    private var cameraCard: some View {
-        if let snapshot = model.snapshot, model.isRunning {
-            CameraOverlayView(snapshot: snapshot, route: model.navigationProgress, compact: true)
-                .frame(height: 340)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .accessibilityHidden(true)
-        } else {
-            Text("The camera view appears here once guidance starts.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: 80)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-        }
     }
 
     private var destinationCard: some View {

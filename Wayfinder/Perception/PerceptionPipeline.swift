@@ -145,8 +145,10 @@ final class PerceptionPipeline {
         var worldCounts = WorldAccumulator()
         var cellIndex = [Int](repeating: -1, count: points.count)
         let half = t.corridorWidth / 2
-        var profileForward: [Float] = []
-        var profileHeight: [Float] = []
+        // Corridor side profiles for stair detection: all points (debug), and the left and right halves.
+        var profileForward: [Float] = [], profileHeight: [Float] = []
+        var leftForward: [Float] = [], leftHeight: [Float] = []
+        var rightForward: [Float] = [], rightHeight: [Float] = []
         for i in points.indices {
             let height = worldY[i] - floorY
             let band = HeightBand.classify(height, tuning: t)
@@ -165,6 +167,13 @@ final class PerceptionPipeline {
             if abs(points[i].lateral) <= half, height > -0.9, height < 1.0 {
                 profileForward.append(points[i].forward)
                 profileHeight.append(height)
+                if points[i].lateral < 0 {
+                    leftForward.append(points[i].forward)
+                    leftHeight.append(height)
+                } else {
+                    rightForward.append(points[i].forward)
+                    rightHeight.append(height)
+                }
             }
         }
 
@@ -185,7 +194,16 @@ final class PerceptionPipeline {
         // 4. Stairs, from the corridor's side profile.
         let profileStart = max(0.3, t.minRange)
         let profile = StairDetector.profile(forward: profileForward, height: profileHeight, from: profileStart, to: t.maxRange)
-        let stairs = StairDetector.detect(StairDetector.plateaus(profile, start: profileStart))
+        let stairs = StairDetector.detect(
+            left: StairDetector.plateaus(
+                StairDetector.profile(forward: leftForward, height: leftHeight, from: profileStart, to: t.maxRange),
+                start: profileStart
+            ),
+            right: StairDetector.plateaus(
+                StairDetector.profile(forward: rightForward, height: rightHeight, from: profileStart, to: t.maxRange),
+                start: profileStart
+            )
+        )
         if let stairs, stairs.direction == lastStairs?.direction {
             stairsSince = stairsSince ?? frame.timestamp
         } else {

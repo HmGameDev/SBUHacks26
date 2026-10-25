@@ -144,7 +144,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Show camera view on the home screen", isOn: $store.preferences.showCamera)
+                    Toggle("Open camera view after Start", isOn: $store.preferences.showCamera)
                         .tint(Theme.accent)
                 } footer: {
                     Text("Shows what the camera sees and what the app detects. Keeps the screen bright, which uses more battery.")

@@ -175,7 +175,7 @@ A phone running LiDAR, the camera, and processing inside a chest harness gets ho
 | --- | --- | --- | --- |
 | Stop | Urgency at least 0.9, or drop-off within 1.5 m | "Stop." or "Step down." Interrupts anything. | One long strong buzz (0.6 s, full intensity) |
 | Steer | Path ahead blocked within 2.5 m and a gap exists | "Left." "Right." "Slight left." "Slight right." | Pulse rate rises as the obstacle gets closer |
-| Stairs | Two or more steps up or down within 2.5 m | "Stairs going up ahead." / "Stairs going down ahead." | Two quick sharp taps |
+| Stairs | Three or more regular steps up or down within 2.5 m, seen by both corridor halves for 0.6 s | "Stairs going up ahead." / "Stairs going down ahead." | Two quick sharp taps |
 | Clear | Path was blocked and is now clear for 1 s | "Clear." (optional, user setting) | Nothing |
 | Status | Mode change, calibration, errors, low battery, heat | Full short sentence | One light tap |
 | Guided | Turn instructions, arrival | Full sentence | One light tap before speaking |

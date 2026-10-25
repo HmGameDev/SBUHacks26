@@ -69,7 +69,7 @@ struct Tuning: Codable, Equatable, Sendable {
     /// A drop-off must be seen this long before "Step down" is spoken.
     var dropConfirmSeconds: Double = 0.3
     var stairAlertDistance: Float = 2.5
-    var stairConfirmSeconds: Double = 0.3
+    var stairConfirmSeconds: Double = 0.6
     var repeatInterval: Double = 2.5
     var queueExpiry: Double = 1.5
     var clearHoldSeconds: Double = 1.0
@@ -81,8 +81,8 @@ struct Tuning: Codable, Equatable, Sendable {
 
 @Observable
 final class TuningStore {
-    // v2: new defaults for drop-off sensitivity, so stored v1 values must not override them.
-    private static let key = "wayfinder.tuning.v2"
+    // v3: new defaults for stair and drop-off sensitivity, so older stored values must not override them.
+    private static let key = "wayfinder.tuning.v3"
 
     var tuning: Tuning {
         didSet { save() }

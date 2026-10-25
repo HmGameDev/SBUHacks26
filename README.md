@@ -15,7 +15,7 @@ Without generated clips the app speaks every cue with on-device speech, which is
 
 ### AI voice for directions (optional)
 
-Spoken directions and search results can use live ElevenLabs. Either paste a key in the app (Settings, AI voice for directions), or create `Wayfinder/Secrets.plist` before building:
+Spoken directions and search results can use live ElevenLabs. Either paste a key in the app (Settings, AI voice for directions; it is saved on the phone), or copy [docs/Secrets.example.plist](docs/Secrets.example.plist) to `Wayfinder/Secrets.plist`, fill in the key, and build:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,11 +38,11 @@ Spoken directions and search results can use live ElevenLabs. Either paste a key
 - Press **Start**, then stand still and face forward for two seconds while it finds the floor. It says "Ready."
 - **Just walk** (passive) guides around obstacles with no destination, and leans back toward the direction you were walking once you are past something. **Go somewhere** (guided) adds Apple Maps walking directions: tap the microphone and say a place, or type it, then pick a result. The top result is read aloud.
 - **Settings** (gear icon) has how much it talks, cue volume, vibration strength, the iPhone voice and speed, and the AI voice. Every change plays an example. **Help** (question mark) plays each cue with what it means.
-- **Show camera view** puts the live detection view on the home screen, with the route direction drawn in blue.
+- **Open camera view after Start** opens the live detection view on its own full screen once guidance starts, with the route direction in blue and a large Stop bar at the bottom. "Hide camera" goes back home while guidance keeps running.
 - The screen dims to save battery while guiding. Do not press the side button: iOS stops the camera when the app leaves the foreground, and the app says "Guidance stopped."
-- Siri: "Start Wayfinder", "Stop Wayfinder", "Wayfinder passive mode", "Navigate with Wayfinder", "Wayfinder quieter", "Wayfinder more detail".
+- Siri (open the app once after installing): "Start Wayfinder", "Stop Wayfinder", "Wayfinder passive mode", "Start navigation with Wayfinder" (Siri asks where to), "Stop navigation in Wayfinder" (obstacle warnings stay on), "Wayfinder where am I going", "Wayfinder quieter", "Wayfinder more detail".
 
-What the cues mean: "Stop" with a long buzz means something is right ahead; "Step down" means a curb or single step down; "Stairs going up/down ahead" with a double tap means two or more steps; "Left" / "Right" / "Slight left" / "Slight right" point at the clearest gap. Head-height obstacles are shown in the debug views but not spoken (too many false alarms on a chest mount). The repeating tap speeds up as the nearest obstacle gets closer. Silence means the way is clear.
+What the cues mean: "Stop" with a long buzz means something is right ahead; "Step down" means a curb or single step down; "Stairs going up/down ahead" with a double tap means three or more matching steps, seen for at least 0.6 s by both halves of the walking path; "Left" / "Right" / "Slight left" / "Slight right" point at the clearest gap. Head-height obstacles are shown in the debug views but not spoken (too many false alarms on a chest mount). The repeating tap speeds up as the nearest obstacle gets closer. Silence means the way is clear.
 
 ## Debugging
 
