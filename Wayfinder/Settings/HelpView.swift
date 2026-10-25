@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 
 /// Every cue, what it means, and a button to hear it. Doubles as a practice screen before the first walk.
@@ -74,11 +75,18 @@ struct HelpView: View {
                 Label("Keep using your cane or guide dog. This app adds warnings; it does not replace them.", systemImage: "figure.walk")
             }
 
-            Section("Hands-free with Siri") {
-                Text("\"Hey Siri, start Wayfinder\"")
-                Text("\"Hey Siri, stop Wayfinder\"")
-                Text("\"Hey Siri, navigate with Wayfinder\"")
+            Section {
+                SiriTipView(intent: StartGuidanceIntent())
+                SiriTipView(intent: NavigateIntent())
+                Text("\"Hey Siri, start Wayfinder\" or \"stop Wayfinder\"")
+                Text("\"Hey Siri, start navigation with Wayfinder\" (Siri asks where to)")
+                Text("\"Hey Siri, stop navigation in Wayfinder\" (obstacle warnings stay on)")
+                Text("\"Hey Siri, Wayfinder where am I going\"")
                 Text("\"Hey Siri, Wayfinder quieter\" or \"more detail\"")
+            } header: {
+                Text("Hands-free with Siri")
+            } footer: {
+                Text("Open the app once after installing so Siri learns these phrases.")
             }
         }
         .navigationTitle("What the sounds mean")

@@ -183,7 +183,7 @@ final class PlannerTests: XCTestCase {
         let stairs = StairDetector.detect(StairDetector.plateaus(profile, start: 0.3))
         XCTAssertEqual(stairs?.direction, .up)
         XCTAssertEqual(stairs?.distance ?? 0, 1.5, accuracy: 0.1)
-        XCTAssertGreaterThanOrEqual(stairs?.steps ?? 0, 2)
+        XCTAssertGreaterThanOrEqual(stairs?.steps ?? 0, 3)
     }
 
     func testStairsDownAreDetectedButACurbIsNot() {
@@ -199,6 +199,52 @@ final class PlannerTests: XCTestCase {
         }
         XCTAssertEqual(StairDetector.detect(StairDetector.plateaus(profile(steps: 5), start: 0.3))?.direction, .down)
         XCTAssertNil(StairDetector.detect(StairDetector.plateaus(profile(steps: 1), start: 0.3)), "one step is a curb")
+    }
+
+    func testTwoStepsAreNotStairs() {
+        var profile: [Float?] = []
+        var d: Float = 0.3
+        while d < 3.5 {
+            let level = d < 1.2 ? 0 : min(2, Int((d - 1.2) / 0.3) + 1)
+            profile.append(-0.17 * Float(level))
+            d += StairDetector.binSize
+        }
+        XCTAssertNil(StairDetector.detect(StairDetector.plateaus(profile, start: 0.3)), "a double curb is not a staircase")
+    }
+
+    func testUnevenPavementIsNotStairs() {
+        // Flat patches of different lengths, each a few centimeters up or down from the last.
+        let patches: [(length: Float, height: Float)] = [
+            (0.9, 0), (0.35, 0.07), (0.5, 0.13), (0.25, 0.05), (0.6, 0.12), (0.4, 0.2), (0.3, 0.1),
+        ]
+        var profile: [Float?] = []
+        for patch in patches {
+            profile += [Float?](repeating: patch.height, count: Int((patch.length / StairDetector.binSize).rounded()))
+        }
+        XCTAssertNil(StairDetector.detect(StairDetector.plateaus(profile, start: 0.3)))
+    }
+
+    func testIrregularRisersAreNotStairs() {
+        // Three rises, but 11, 20 and 12 cm: rubble or a broken curb, not built stairs.
+        let patches: [(length: Float, height: Float)] = [(1.0, 0), (0.3, 0.11), (0.3, 0.31), (0.3, 0.43), (0.6, 0.43)]
+        var profile: [Float?] = []
+        for patch in patches {
+            profile += [Float?](repeating: patch.height, count: Int((patch.length / StairDetector.binSize).rounded()))
+        }
+        XCTAssertNil(StairDetector.detect(StairDetector.plateaus(profile, start: 0.3)))
+    }
+
+    func testBothCorridorHalvesMustAgree() {
+        var stairs: [Float?] = []
+        var d: Float = 0.3
+        while d < 3.5 {
+            stairs.append(d < 1.5 ? 0 : 0.17 * Float(Int((d - 1.5) / 0.28) + 1))
+            d += StairDetector.binSize
+        }
+        let flat = [Float?](repeating: 0, count: stairs.count)
+        let seen = StairDetector.plateaus(stairs, start: 0.3)
+        XCTAssertNotNil(StairDetector.detect(left: seen, right: seen))
+        XCTAssertNil(StairDetector.detect(left: seen, right: StairDetector.plateaus(flat, start: 0.3)))
     }
 
     func testFlatFloorHasNoStairs() {

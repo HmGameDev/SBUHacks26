@@ -12,7 +12,11 @@ struct StairInfo: Sendable, Equatable {
 }
 
 /// Finds stairs in the walking corridor's side profile: a run of flat treads, each about one riser
-/// (8 to 24 cm) above or below the last. One step on its own is a curb, which the drop-off check handles.
+/// (11 to 21 cm) above or below the last. One step on its own is a curb, which the drop-off check handles.
+///
+/// Uneven pavement also makes flat patches at slightly different heights, so real stairs must pass
+/// several checks: at least three steps, risers and treads that match each other, and the same steps
+/// seen by both the left and right halves of the walking corridor.
 enum StairDetector {
     struct Plateau: Equatable {
         let start: Float
@@ -22,11 +26,17 @@ enum StairDetector {
     }
 
     static let binSize: Float = 0.05
-    static let minRise: Float = 0.08
-    static let maxRise: Float = 0.24
+    static let minRise: Float = 0.11
+    static let maxRise: Float = 0.21
     static let flatTolerance: Float = 0.04
-    static let minTread: Float = 0.12
-    static let maxTread: Float = 0.5
+    static let minTread: Float = 0.18
+    static let maxTread: Float = 0.6
+    static let minSteps = 3
+    /// How far any riser may differ from the average riser, and any tread from the average tread.
+    static let riseTolerance: Float = 0.04
+    static let treadTolerance: Float = 0.12
+    /// Left and right halves must put the first step within this distance of each other.
+    static let sideAgreement: Float = 0.3
 
     /// Median height above the floor in each forward bin, from points inside the walking corridor.
     static func profile(forward: [Float], height: [Float], from start: Float, to end: Float) -> [Float?] {
@@ -83,21 +93,38 @@ enum StairDetector {
         // Start from the floor the user stands on.
         guard let base = plateaus.firstIndex(where: { abs($0.height) <= 0.06 }) else { return nil }
         for direction in [StairInfo.Direction.up, .down] {
-            var steps = 0
+            var rises: [Float] = []
+            var treads: [Float] = []
             var i = base
             while i + 1 < plateaus.count {
                 let rise = plateaus[i + 1].height - plateaus[i].height
                 let signed = direction == .up ? rise : -rise
                 guard signed >= minRise, signed <= maxRise else { break }
                 // Every tread except the last visible one must be stair-sized.
-                if i > base, plateaus[i].length > maxTread { break }
-                steps += 1
+                if i > base {
+                    guard plateaus[i].length <= maxTread else { break }
+                    treads.append(plateaus[i].length)
+                }
+                rises.append(signed)
                 i += 1
             }
-            if steps >= 2 {
-                return StairInfo(direction: direction, distance: plateaus[base + 1].start, steps: steps)
-            }
+            guard rises.count >= minSteps, isRegular(rises, tolerance: riseTolerance),
+                  isRegular(treads, tolerance: treadTolerance) else { continue }
+            return StairInfo(direction: direction, distance: plateaus[base + 1].start, steps: rises.count)
         }
         return nil
+    }
+
+    /// Stairs only when both halves of the corridor see the same stairs.
+    static func detect(left: [Plateau], right: [Plateau]) -> StairInfo? {
+        guard let a = detect(left), let b = detect(right), a.direction == b.direction,
+              abs(a.distance - b.distance) <= sideAgreement else { return nil }
+        return StairInfo(direction: a.direction, distance: min(a.distance, b.distance), steps: min(a.steps, b.steps))
+    }
+
+    private static func isRegular(_ values: [Float], tolerance: Float) -> Bool {
+        guard !values.isEmpty else { return true }
+        let mean = values.reduce(0, +) / Float(values.count)
+        return values.allSatisfy { abs($0 - mean) <= tolerance }
     }
 }

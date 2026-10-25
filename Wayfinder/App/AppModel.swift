@@ -281,6 +281,33 @@ final class AppModel {
         }
     }
 
+    /// End the route but keep obstacle guidance running.
+    func stopNavigation() {
+        guard navigationState.isActive || navigationProgress != nil else {
+            feedback.sayText("No route is running.", tier: .status)
+            return
+        }
+        navigator.stop()
+        runner.setGoalHeading(nil)
+        searchResults = []
+        // Switch modes without restarting the camera, so the user is never left without obstacle warnings.
+        mode = .passive
+        feedback.sayText(isRunning ? "Navigation stopped. Obstacle warnings are still on." : "Navigation stopped.", tier: .status)
+    }
+
+    /// Repeat the next turn and how far is left.
+    func repeatDirections() {
+        guard let progress = navigationProgress else {
+            feedback.sayText(navigationState.isActive ? "Still finding the route." : "No route is running.", tier: .status)
+            return
+        }
+        var sentence = progress.nextInstruction
+        if let turn = progress.distanceToNextTurn { sentence += " in \(GuidedNavigator.spokenDistance(turn))" }
+        sentence += "."
+        if let remaining = progress.remaining { sentence += " \(GuidedNavigator.spokenDistance(remaining)) to go." }
+        feedback.sayText(sentence, tier: .guided)
+    }
+
     func quieter() {
         verbosity = verbosity.quieter
         feedback.say("quieter")

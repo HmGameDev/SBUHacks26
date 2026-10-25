@@ -12,7 +12,7 @@ struct Preferences: Codable, Equatable, Sendable {
     var cueVolume: Float = 1.0
     /// 0...1, scales every vibration.
     var hapticStrength: Float = 1.0
-    /// Show what the camera sees on the home screen while guiding.
+    /// Open the full-screen camera view after Start.
     var showCamera = false
     /// Read directions with the ElevenLabs voice when a key is set and the network answers in time.
     var useAIVoice = true
