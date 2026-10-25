@@ -39,6 +39,7 @@ final class CueArbiter {
     private var wasBlocked = false
     private var clearSince: TimeInterval?
     private var lastPulse: Double?
+    private var dropSince: TimeInterval?
     private let maxLog = 300
     private let longExpiry: TimeInterval = 8
 
@@ -50,6 +51,7 @@ final class CueArbiter {
         lastSteerTime = -.infinity
         wasBlocked = false
         clearSince = nil
+        dropSince = nil
         let hadPulse = lastPulse != nil
         lastPulse = nil
         return hadPulse ? [.pulse(interval: nil)] : []
@@ -61,14 +63,28 @@ final class CueArbiter {
     func update(_ p: PlannerOutput, now: TimeInterval, tuning t: Tuning) -> [FeedbackCommand] {
         var commands: [FeedbackCommand] = []
 
-        // Safety: drop-off, stop, overhead, in that order.
-        var safety: (key: String, cue: Cue, why: String)?
+        // A drop-off must persist briefly before it is spoken; single-frame holes in the depth map are common.
+        var confirmedDrop: Float?
         if let d = p.dropOffAhead, d <= t.dropAlertDistance {
+            if dropSince == nil { dropSince = now }
+            if let since = dropSince, now - since >= t.dropConfirmSeconds { confirmedDrop = d }
+        } else {
+            dropSince = nil
+        }
+
+        // Safety: stairs, drop-off, stop, in that order. Overhead is not spoken: on a chest mount it is
+        // wrong too often to be worth interrupting for.
+        var safety: (key: String, cue: Cue, why: String)?
+        if let stairs = p.stairs, stairs.distance <= t.stairAlertDistance {
+            let key = stairs.direction == .up ? "stairs_up" : "stairs_down"
+            var phrases = [key]
+            if verbosity == .chatty { phrases.append("dist_\(max(1, min(4, Int(stairs.distance.rounded()))))") }
+            safety = (key, Cue(tier: .stop, phrases: phrases, haptic: .doubleTap),
+                      String(format: "%ld steps %@ at %.1fm", stairs.steps, stairs.direction.rawValue, stairs.distance))
+        } else if let d = confirmedDrop {
             safety = ("step_down", Cue(tier: .stop, phrases: ["step_down"], haptic: .stopBuzz), String(format: "drop-off %.1fm", d))
         } else if p.blocked || (p.pathVisible && p.urgency >= t.stopUrgency) {
             safety = ("stop", Cue(tier: .stop, phrases: ["stop"], haptic: .stopBuzz), String(format: "urgency %.2f", p.urgency))
-        } else if let d = p.overheadAhead, d <= t.overheadAlertDistance {
-            safety = ("duck", Cue(tier: .overhead, phrases: ["duck"], haptic: .doubleTap), String(format: "overhead %.1fm", d))
         }
 
         if let safety {
@@ -93,7 +109,9 @@ final class CueArbiter {
             case (false, false): steerKey = "right"
             }
         }
-        if let key = steerKey, verbosity != .minimal, safety?.key != "step_down" {
+        // No steering around stairs or a step: the user decides whether to take them.
+        let steerAllowed = safety == nil || safety?.key == "stop"
+        if let key = steerKey, verbosity != .minimal, steerAllowed {
             if key != lastSteerKey || now - lastSteerTime >= t.repeatInterval {
                 lastSteerKey = key
                 lastSteerTime = now

@@ -265,6 +265,8 @@
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Wayfinder uses the camera and LiDAR to find obstacles and drop-offs in your path.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Wayfinder uses your location to guide you to a destination in Guided mode.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Wayfinder listens when you say where you want to go.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Wayfinder turns the destination you say into a search.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -298,6 +300,8 @@
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Wayfinder uses the camera and LiDAR to find obstacles and drop-offs in your path.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Wayfinder uses your location to guide you to a destination in Guided mode.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Wayfinder listens when you say where you want to go.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Wayfinder turns the destination you say into a search.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;

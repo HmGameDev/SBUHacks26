@@ -18,7 +18,7 @@ struct Tuning: Codable, Equatable, Sendable {
     var stepThreshold: Float = 0.15
 
     // Height bands, relative to the floor
-    var dropThreshold: Float = -0.12
+    var dropThreshold: Float = -0.15
     var floorBand: Float = 0.08
     var overheadStart: Float = 1.2
     var obstacleTop: Float = 2.0
@@ -27,13 +27,27 @@ struct Tuning: Codable, Equatable, Sendable {
     var cellSize: Float = 0.1
     var gridHalfWidth: Float = 2.0
     var minPointsPerCell: Int = 3
+    /// Frames of evidence before a cell counts as blocked (the remembered map's confirm threshold).
     var persistenceFrames: Int = 2
-    var inferDropFromMissingFloor = true
+    /// How long the map remembers a cell the camera no longer sees.
+    var memorySeconds: Double = 8
+    /// Dark or shiny floors often return nothing, so guessing drop-offs from missing floor is off by default.
+    var inferDropFromMissingFloor = false
     var inferredDropMaxDistance: Float = 2.0
     var inferredDropRows: Int = 3
 
     // Planner
     var corridorWidth: Float = 0.7
+    /// Extra width on each side for the clearance check, so paths hugging a wall score lower.
+    var clearanceMargin: Float = 0.3
+    var clearanceWeight: Float = 0.5
+    /// Pull toward the direction the user was walking before the obstacle (passive mode).
+    var intentWeight: Float = 0.5
+    var intentTimeConstant: Double = 3
+    /// Drop-off cells needed side by side before the path counts as blocked by a drop.
+    var dropMinCells: Int = 3
+    /// Overhead detection is unreliable on a chest mount, so it does not block paths unless turned on.
+    var overheadBlocks = false
     var headingCount: Int = 16
     var headingSpanDegrees: Float = 40
     var unknownRunLimit: Float = 0.6
@@ -51,8 +65,11 @@ struct Tuning: Codable, Equatable, Sendable {
     var steerTriggerDistance: Float = 2.5
     var slightTurnDegrees: Float = 15
     var stopUrgency: Float = 0.9
-    var dropAlertDistance: Float = 1.5
-    var overheadAlertDistance: Float = 2.0
+    var dropAlertDistance: Float = 1.2
+    /// A drop-off must be seen this long before "Step down" is spoken.
+    var dropConfirmSeconds: Double = 0.3
+    var stairAlertDistance: Float = 2.5
+    var stairConfirmSeconds: Double = 0.3
     var repeatInterval: Double = 2.5
     var queueExpiry: Double = 1.5
     var clearHoldSeconds: Double = 1.0
@@ -64,7 +81,8 @@ struct Tuning: Codable, Equatable, Sendable {
 
 @Observable
 final class TuningStore {
-    private static let key = "wayfinder.tuning.v1"
+    // v2: new defaults for drop-off sensitivity, so stored v1 values must not override them.
+    private static let key = "wayfinder.tuning.v2"
 
     var tuning: Tuning {
         didSet { save() }

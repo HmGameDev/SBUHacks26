@@ -6,6 +6,8 @@ import Foundation
 final class HapticChannel {
     private var engine: CHHapticEngine?
     private var pulseTimer: Timer?
+    /// 0...1 from Preferences; scales every vibration.
+    var strength: () -> Float = { 1 }
 
     var isAvailable: Bool { engine != nil }
 
@@ -68,7 +70,7 @@ final class HapticChannel {
         CHHapticEvent(
             eventType: .hapticTransient,
             parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity * max(0, min(1, strength()))),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
             ],
             relativeTime: time
@@ -79,7 +81,7 @@ final class HapticChannel {
         CHHapticEvent(
             eventType: .hapticContinuous,
             parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity * max(0, min(1, strength()))),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
             ],
             relativeTime: time,

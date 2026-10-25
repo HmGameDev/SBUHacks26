@@ -40,11 +40,11 @@ final class AppModel {
         }
     }
     var debugVisible = false {
-        didSet {
-            let wanted = debugVisible
-            runner.update { $0.wantsDebug = wanted }
-            updateBrightness()
-        }
+        didSet { updateDebugWanted() }
+    }
+    /// The home screen is showing the live camera view.
+    var cameraPreviewVisible = false {
+        didSet { updateDebugWanted() }
     }
     var muteReplay = false {
         didSet { if isReplaying { feedback.muted = muteReplay } }
@@ -62,15 +62,23 @@ final class AppModel {
     private(set) var thermalState = ProcessInfo.processInfo.thermalState
     private(set) var batteryLevel: Float = -1
     private(set) var navigationState: GuidedNavigator.State = .idle
+    private(set) var navigationProgress: GuidedNavigator.Progress?
+    private(set) var searchResults: [GuidedNavigator.Place] = []
+    private(set) var isSearching = false
+    private(set) var searchMessage: String?
 
     let tuningStore = TuningStore()
+    let preferencesStore = PreferencesStore()
     let feedback = FeedbackEngine()
+    let speechInput = SpeechInput()
     @ObservationIgnored let navigator = GuidedNavigator()
     @ObservationIgnored private let runner = PipelineRunner()
     @ObservationIgnored private var lastAnnouncement: [String: TimeInterval] = [:]
     @ObservationIgnored private var previousBrightness: CGFloat?
     @ObservationIgnored private var sampleCounter = 0
     @ObservationIgnored private var thermalObserver: NSObjectProtocol?
+    /// A place picked from the search results, routed to as soon as guidance starts.
+    @ObservationIgnored private var pendingPlace: GuidedNavigator.Place?
     @ObservationIgnored private var hasTrackedNormally = false
 
     private static let verbosityKey = "wayfinder.verbosity"
@@ -89,6 +97,8 @@ final class AppModel {
         }
         feedback.verbosity = verbosity
         feedback.tuning = { [weak self] in self?.tuningStore.tuning ?? Tuning() }
+        feedback.preferences = { [weak self] in self?.preferencesStore.preferences ?? Preferences() }
+        speechInput.onSessionReleased = { [weak self] in self?.feedback.speech.configureSession() }
 
         runner.onResult = { @Sendable [weak self] result, snapshot in
             Task { @MainActor in self?.handle(result, snapshot: snapshot) }
@@ -100,6 +110,7 @@ final class AppModel {
         navigator.onSpeakText = { [weak self] text in self?.feedback.sayText(text) }
         navigator.onSpeakPhrase = { [weak self] phrase in self?.feedback.say(phrase, tier: .guided) }
         navigator.onStateChange = { [weak self] state in self?.navigationState = state }
+        navigator.onProgress = { [weak self] progress in self?.navigationProgress = progress }
 
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryLevel = UIDevice.current.batteryLevel
@@ -141,7 +152,10 @@ final class AppModel {
         }
         if mode == .guided {
             let query = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-            if query.isEmpty {
+            if let place = pendingPlace {
+                pendingPlace = nil
+                navigator.start(place: place)
+            } else if query.isEmpty {
                 feedback.sayText("No destination set. Guiding around obstacles only.", tier: .status)
             } else {
                 navigator.start(query: query)
@@ -191,6 +205,78 @@ final class AppModel {
         } else {
             if isRunning { stop(announce: false) }
             mode = .guided
+            start()
+        }
+    }
+
+    // MARK: - Destination search
+
+    /// Search for places and read the top results aloud. The user picks one, or says Go for the first.
+    func searchDestination(_ text: String) {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        destination = query
+        isSearching = true
+        searchMessage = "Searching for \(query)…"
+        searchResults = []
+        feedback.start()
+        Task { @MainActor in
+            do {
+                let places = try await navigator.search(query)
+                isSearching = false
+                searchResults = places
+                if let first = places.first {
+                    searchMessage = places.count == 1 ? "1 place found" : "\(places.count) places found"
+                    let more = places.count > 1 ? " \(places.count - 1) more on screen." : ""
+                    feedback.sayText("Top result: \(first.spoken).\(more) Tap a place to go.", tier: .status)
+                } else {
+                    searchMessage = "Nothing found for \(query)"
+                    feedback.sayText("I couldn't find \(query). Try another name.", tier: .status)
+                }
+            } catch {
+                isSearching = false
+                searchMessage = "Search failed. Check the internet connection."
+                feedback.sayText("Search failed. Check the internet connection.", tier: .status)
+            }
+        }
+    }
+
+    /// Say the destination: listen, then search for what was heard.
+    func dictateDestination() {
+        if speechInput.isListening {
+            speechInput.stop()
+            return
+        }
+        // Quiet first, so the microphone does not hear the app. Stopping through the engine keeps the
+        // cue arbiter in step; the next frame brings the proximity pulse back.
+        feedback.stop()
+        feedback.haptics.play(.doubleTap)
+        speechInput.start { [weak self] text in
+            guard let self else { return }
+            if text.isEmpty {
+                if let problem = self.speechInput.problem {
+                    self.searchMessage = problem
+                    self.feedback.sayText(problem, tier: .status)
+                } else {
+                    self.feedback.sayText("I didn't hear a place. Tap the microphone and try again.", tier: .status)
+                }
+            } else {
+                self.searchDestination(text)
+            }
+        }
+    }
+
+    /// Route to a picked search result, starting guidance if it is not running.
+    func go(to place: GuidedNavigator.Place) {
+        destination = place.name
+        searchResults = []
+        searchMessage = nil
+        if runState == .live && mode == .guided {
+            navigator.start(place: place)
+        } else {
+            if isRunning { stop(announce: false) }
+            mode = .guided
+            pendingPlace = place
             start()
         }
     }
@@ -317,10 +403,18 @@ final class AppModel {
         hasTrackedNormally = false
     }
 
+    private var wantsDebug: Bool { debugVisible || cameraPreviewVisible }
+
+    private func updateDebugWanted() {
+        let wanted = wantsDebug
+        runner.update { $0.wantsDebug = wanted }
+        updateBrightness()
+    }
+
     private func currentOptions() -> PipelineRunner.Options {
         var options = PipelineRunner.Options()
         options.tuning = tuningStore.tuning
-        options.wantsDebug = debugVisible
+        options.wantsDebug = wantsDebug
         options.thermalThrottle = thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         options.alignToNorth = mode == .guided
         return options
@@ -374,7 +468,7 @@ final class AppModel {
     /// The screen faces the user's chest while walking, so keep it dark unless someone is debugging.
     private func updateBrightness() {
         let screen = UIScreen.main
-        if runState == .live && !debugVisible {
+        if runState == .live && !wantsDebug {
             if previousBrightness == nil { previousBrightness = screen.brightness }
             screen.brightness = 0.05
         } else if let previous = previousBrightness {

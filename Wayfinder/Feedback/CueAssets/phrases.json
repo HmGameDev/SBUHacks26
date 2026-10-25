@@ -3,7 +3,8 @@
   "phrases": [
     { "id": "stop", "text": "Stop." },
     { "id": "step_down", "text": "Step down." },
-    { "id": "duck", "text": "Duck." },
+    { "id": "stairs_up", "text": "Stairs going up ahead." },
+    { "id": "stairs_down", "text": "Stairs going down ahead." },
     { "id": "left", "text": "Left." },
     { "id": "right", "text": "Right." },
     { "id": "slight_left", "text": "Slight left." },
@@ -30,6 +31,7 @@
     { "id": "no_lidar", "text": "This phone has no LiDAR sensor." },
     { "id": "arrived", "text": "You have arrived." },
     { "id": "recalculating", "text": "Recalculating route." },
+    { "id": "duck", "text": "Duck.", "reserved": true },
     { "id": "person", "text": "Person.", "reserved": true },
     { "id": "pole", "text": "Pole.", "reserved": true },
     { "id": "vehicle", "text": "Car.", "reserved": true },
