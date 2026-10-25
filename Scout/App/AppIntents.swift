@@ -101,7 +101,7 @@ struct MoreDetailIntent: AppIntent {
     }
 }
 
-struct WayfinderShortcuts: AppShortcutsProvider {
+struct ScoutShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: StartGuidanceIntent(),

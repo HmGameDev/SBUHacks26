@@ -81,7 +81,7 @@ final class AppModel {
     @ObservationIgnored private var pendingPlace: GuidedNavigator.Place?
     @ObservationIgnored private var hasTrackedNormally = false
 
-    private static let verbosityKey = "wayfinder.verbosity"
+    private static let verbosityKey = "scout.verbosity"
     private let historyLength = 300
 
     var isRunning: Bool { runState != .idle }

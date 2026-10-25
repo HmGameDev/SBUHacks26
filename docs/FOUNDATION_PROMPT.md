@@ -4,7 +4,7 @@ You are building an iOS app for blind and low-vision walkers. The phone is worn 
 
 The app is a supplement to a white cane or guide dog, never a replacement. Every design choice should favor "silent and correct" over "chatty and clever".
 
-The working name is **Wayfinder**. Rename freely.
+The app is named **Scout** (renamed from the working name Wayfinder on 2026-10-25).
 
 Read this whole file before writing code. When this file and a later instruction from the team disagree, the team wins; update this file to match.
 
@@ -188,7 +188,7 @@ Generate every fixed phrase once with ElevenLabs, using a script in `tools/gener
 
 For dynamic text (directions and street names in Guided mode), use live ElevenLabs (`eleven_flash_v2_5`) when a key is configured and the reply arrives within 1.5 s, and fall back to the best installed `AVSpeechSynthesizer` voice otherwise. Never route Stop, Steer, Stairs, or Step down through the network.
 
-The team chose (2026-10-25) to ship the ElevenLabs key inside the demo app for live directions: it comes from a gitignored `Wayfinder/Secrets.plist` or the Settings screen, never from git. Anyone with the app binary can extract it, so use a key with a low spending limit.
+The team chose (2026-10-25) to ship the ElevenLabs key inside the demo app for live directions: it comes from a gitignored `Scout/Secrets.plist` or the Settings screen, never from git. Anyone with the app binary can extract it, so use a key with a low spending limit.
 
 ### 6.3 Speaker rules
 
@@ -204,7 +204,7 @@ The team chose (2026-10-25) to ship the ElevenLabs key inside the demo app for l
 
 The screen faces the chest, so:
 
-- Expose App Intents so Siri can run "Start Wayfinder", "Stop Wayfinder", "Passive mode", "Navigate to <place>", "Quieter", "More detail".
+- Expose App Intents so Siri can run "Start Scout", "Stop Scout", "Passive mode", "Navigate to <place>", "Quieter", "More detail".
 - Before mounting, the home screen is one large button: tap anywhere to start. It must work fully with VoiceOver.
 - On the iPhone 17 Pro, the Action button can be assigned to the start/stop intent.
 
@@ -284,7 +284,7 @@ If time runs short, cut Guided mode before cutting replay, drop-off detection, o
 ## 11. Repository layout
 
 ```
-Wayfinder/                 Xcode project
+Scout/                 Xcode project
   App/                     App entry, App Intents, settings
   Capture/                 ARKit source, replay source, recorder
   Perception/              Calibration, point cloud, grid, planner
@@ -292,7 +292,7 @@ Wayfinder/                 Xcode project
   Navigation/              Guided mode (later)
   Identification/          Protocol and NullClassifier only
   Debug/                   Overlay, views, HUD, tuning
-WayfinderTests/            Unit tests, replay-based tests
+ScoutTests/            Unit tests, replay-based tests
 tools/generate_cues/       ElevenLabs script and phrase list
 reference/shepherd/        Read-only reference, not in the build
 docs/                      This file and notes

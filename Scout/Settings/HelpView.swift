@@ -78,11 +78,11 @@ struct HelpView: View {
             Section {
                 SiriTipView(intent: StartGuidanceIntent())
                 SiriTipView(intent: NavigateIntent())
-                Text("\"Hey Siri, start Wayfinder\" or \"stop Wayfinder\"")
-                Text("\"Hey Siri, start navigation with Wayfinder\" (Siri asks where to)")
-                Text("\"Hey Siri, stop navigation in Wayfinder\" (obstacle warnings stay on)")
-                Text("\"Hey Siri, Wayfinder where am I going\"")
-                Text("\"Hey Siri, Wayfinder quieter\" or \"more detail\"")
+                Text("\"Hey Siri, start Scout\" or \"stop Scout\"")
+                Text("\"Hey Siri, start navigation with Scout\" (Siri asks where to)")
+                Text("\"Hey Siri, stop navigation in Scout\" (obstacle warnings stay on)")
+                Text("\"Hey Siri, Scout where am I going\"")
+                Text("\"Hey Siri, Scout quieter\" or \"more detail\"")
             } header: {
                 Text("Hands-free with Siri")
             } footer: {

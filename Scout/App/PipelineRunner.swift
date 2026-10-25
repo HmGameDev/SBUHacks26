@@ -41,7 +41,7 @@ final class PipelineRunner {
     var onResult: (@Sendable (PerceptionResult, DebugSnapshot?) -> Void)?
     var onStatus: (@Sendable (FrameSourceStatus) -> Void)?
 
-    let queue = DispatchQueue(label: "wayfinder.pipeline", qos: .userInteractive)
+    let queue = DispatchQueue(label: "scout.pipeline", qos: .userInteractive)
     private let perception = PerceptionPipeline()
     private let classifier: ObstacleClassifier = NullClassifier()
     private var source: FrameSource?

@@ -68,7 +68,7 @@ struct HomeView: View {
                 .padding()
             }
             .background(Color.black)
-            .navigationTitle("Wayfinder")
+            .navigationTitle("Scout")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showHelp = true } label: {
@@ -145,7 +145,7 @@ struct HomeView: View {
         .sensoryFeedback(.impact(weight: .heavy), trigger: model.isRunning)
         .accessibilityLabel(model.isRunning ? "Stop guidance" : "Start guidance")
         .accessibilityValue(model.statusMessage)
-        .accessibilityHint("Start, then stand still for two seconds while it finds the floor. You can also say, Hey Siri, start Wayfinder.")
+        .accessibilityHint("Start, then stand still for two seconds while it finds the floor. You can also say, Hey Siri, start Scout.")
     }
 
     private var destinationCard: some View {

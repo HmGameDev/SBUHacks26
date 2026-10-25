@@ -1,6 +1,6 @@
 import simd
 import XCTest
-@testable import Wayfinder
+@testable import Scout
 
 final class GeometryTests: XCTestCase {
     let intrinsics = simd_float3x3(columns: (
