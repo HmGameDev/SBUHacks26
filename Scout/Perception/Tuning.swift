@@ -82,7 +82,7 @@ struct Tuning: Codable, Equatable, Sendable {
 @Observable
 final class TuningStore {
     // v3: new defaults for stair and drop-off sensitivity, so older stored values must not override them.
-    private static let key = "wayfinder.tuning.v3"
+    private static let key = "scout.tuning.v3"
 
     var tuning: Tuning {
         didSet { save() }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn the fixed cue vocabulary into bundled ElevenLabs clips.
 
-Reads Wayfinder/Feedback/CueAssets/phrases.json and writes <id>.mp3 next to it for every
+Reads Scout/Feedback/CueAssets/phrases.json and writes <id>.mp3 next to it for every
 non-reserved phrase. The API key comes from the environment and never touches the app or git.
 
     export ELEVENLABS_API_KEY=...            # required
@@ -20,7 +20,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSETS = ROOT / "Wayfinder" / "Feedback" / "CueAssets"
+ASSETS = ROOT / "Scout" / "Feedback" / "CueAssets"
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"
 MODEL = "eleven_multilingual_v2"
 OUTPUT_FORMAT = "mp3_44100_128"

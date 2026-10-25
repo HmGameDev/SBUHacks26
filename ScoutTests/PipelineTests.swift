@@ -1,6 +1,6 @@
 import simd
 import XCTest
-@testable import Wayfinder
+@testable import Scout
 
 /// End to end on synthetic frames: a camera 1.3 m above a flat floor, looking level at a wall.
 final class PipelineTests: XCTestCase {

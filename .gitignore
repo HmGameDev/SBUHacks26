@@ -7,4 +7,4 @@ build/
 __pycache__/
 
 # Local secrets for live ElevenLabs narration. Never commit.
-Wayfinder/Secrets.plist
+Scout/Secrets.plist

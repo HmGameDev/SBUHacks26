@@ -1,5 +1,5 @@
 import XCTest
-@testable import Wayfinder
+@testable import Scout
 
 final class PlannerTests: XCTestCase {
     var tuning = Tuning()

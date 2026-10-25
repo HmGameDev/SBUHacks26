@@ -1,6 +1,6 @@
 # generate_cues
 
-Turns the fixed cue vocabulary in `Wayfinder/Feedback/CueAssets/phrases.json` into bundled ElevenLabs clips (`<id>.mp3` in the same folder). The app plays these with no network. Any clip that is missing falls back to on-device speech, so the app works before you run this.
+Turns the fixed cue vocabulary in `Scout/Feedback/CueAssets/phrases.json` into bundled ElevenLabs clips (`<id>.mp3` in the same folder). The app plays these with no network. Any clip that is missing falls back to on-device speech, so the app works before you run this.
 
 ```sh
 export ELEVENLABS_API_KEY=...          # keep it in your shell, never in git or the app

@@ -1,13 +1,13 @@
 import SwiftUI
 
 @main
-struct WayfinderApp: App {
+struct ScoutApp: App {
     @State private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Refresh Siri's copy of the phrases on every launch, so new ones work without reinstalling.
-        WayfinderShortcuts.updateAppShortcutParameters()
+        ScoutShortcuts.updateAppShortcutParameters()
     }
 
     var body: some Scene {

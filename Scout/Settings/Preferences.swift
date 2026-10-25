@@ -39,7 +39,7 @@ struct Preferences: Codable, Equatable, Sendable {
 
 @Observable
 final class PreferencesStore {
-    private static let key = "wayfinder.preferences.v1"
+    private static let key = "scout.preferences.v1"
 
     var preferences: Preferences {
         didSet { save() }
@@ -61,7 +61,7 @@ final class PreferencesStore {
     }
 }
 
-/// Values from the gitignored `Wayfinder/Secrets.plist`, if the team created one (see README).
+/// Values from the gitignored `Scout/Secrets.plist`, if the team created one (see README).
 enum Secrets {
     private static let values: [String: String] = {
         guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),

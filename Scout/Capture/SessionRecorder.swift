@@ -12,7 +12,7 @@ struct Recording: Identifiable, Hashable {
 /// The Documents folder is visible in the Files app and in Finder, so recordings can be copied off the phone.
 final class SessionRecorder {
     let directory: URL
-    private let io = DispatchQueue(label: "wayfinder.recorder", qos: .utility)
+    private let io = DispatchQueue(label: "scout.recorder", qos: .utility)
     private(set) var frameCount = 0
 
     static var recordingsRoot: URL {
