@@ -158,6 +158,13 @@ extension Tuning {
         LabelTracker.Rules(window: labelVoteWindow, needed: labelVotesNeeded, hold: labelHoldSeconds, matchRadius: labelMatchRadius)
     }
 
+    var doorwayLabelRules: LabelTracker.Rules {
+        LabelTracker.Rules(
+            window: doorwayVoteWindow, needed: doorwayVotesNeeded, hold: doorwayHoldSeconds, matchRadius: doorwayMatchRadius,
+            staticRadius: doorwayMatchRadius
+        )
+    }
+
     var poleLabelRules: LabelTracker.Rules {
         LabelTracker.Rules(
             window: poleVoteWindow, needed: poleVotesNeeded, hold: poleHoldSeconds, matchRadius: poleMatchRadius,
@@ -227,10 +234,9 @@ enum LabelQuery {
         nearest: LabelTrack?, named: [LabelTrack], candidates: Int,
         body: BodyFrame, grid: OccupancyGrid, planner p: PlannerOutput, tuning t: Tuning
     ) -> String {
-        func tierNote(_ label: ObstacleLabel) -> String { label.tier == .hazard ? "" : ", Chatty only" }
         if let track = nearest, let label = track.label {
             let f = body.local(SIMD3(track.position.x, 0, track.position.y)).forward
-            return String(format: "Naming %@ at %.1f m%@", label.rawValue, f, tierNote(label))
+            return String(format: "Naming %@ at %.1f m", label.rawValue, f)
         }
         let placed = named.compactMap { track -> (track: LabelTrack, label: ObstacleLabel, f: Float, l: Float)? in
             guard let label = track.label else { return nil }

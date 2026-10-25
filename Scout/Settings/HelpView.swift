@@ -30,13 +30,14 @@ struct HelpView: View {
     ]
 
     private let names: [Entry] = [
-        Entry(id: "label_person", icon: "figure.walk", meaning: "A person in your way, then which way to go: \"Person. Left.\"", haptic: nil,
-              phrases: ["label_person", "left"]),
-        Entry(id: "label_pole", icon: "cylinder", meaning: "A pole, post, or sign pole in your way.", haptic: nil,
-              phrases: ["label_pole", "slight_right"]),
-        Entry(id: "label_dog", icon: "pawprint", meaning: "A dog in your way.", haptic: nil),
-        Entry(id: "on_left", icon: "arrow.left.circle", meaning: "Chatty only: someone just beside your path, not in it.", haptic: nil,
-              phrases: ["label_person", "on_left"]),
+        Entry(id: "ahead_person", icon: "figure.walk", meaning: "What is in your way, then which way to go around it.", haptic: nil,
+              phrases: ["ahead_person", "go_left"]),
+        Entry(id: "near_door", icon: "door.left.hand.closed", meaning: "After Stop: what is right in front of you.", haptic: nil,
+              phrases: ["stop", "near_door"]),
+        Entry(id: "ahead_doorway", icon: "door.left.hand.open", meaning: "An open doorway ahead, and where it is.", haptic: nil,
+              phrases: ["ahead_doorway", "way_slight_right"]),
+        Entry(id: "beside_left", icon: "arrow.left.circle", meaning: "Chatty only: someone just beside your path, not in it.", haptic: nil,
+              phrases: ["label_person", "beside_left"]),
     ]
 
     var body: some View {
@@ -69,7 +70,7 @@ struct HelpView: View {
             } header: {
                 Text("Obstacle names")
             } footer: {
-                Text("Only with Name obstacles turned on in Settings. Normal names people, dogs, poles, doors, bikes, cars, and trees in your way. Chatty also names furniture like tables, desks, and chairs, and people beside your path. With a Gemini key, other things farther away get a name too. A name is said once per object.")
+                Text("Only with Name obstacles turned on in Settings. Normal and Chatty name whatever is in your way, from people and doors to tables, desks, and chairs, and point out open doorways. Chatty also mentions people beside your path. With a Gemini key, other things get a name too. A name is said once per object.")
             }
 
             Section("Before you walk") {

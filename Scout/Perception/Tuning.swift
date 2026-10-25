@@ -112,6 +112,22 @@ struct Tuning: Codable, Equatable, Sendable {
     var poleHoldSeconds: Double = 4
     var poleMatchRadius: Float = 0.4
     var poleStaticRadius: Float = 0.3
+    // Doorways from geometry (DoorwayDetector): an opening this wide between two tall wall pieces.
+    var doorwayMinWidth: Float = 0.7
+    var doorwayMaxWidth: Float = 1.3
+    /// Each side needs this much wall beside the opening, at least `doorwayWallTop` tall.
+    var doorwayWallLength: Float = 0.3
+    var doorwayWallTop: Float = 1.5
+    var doorwayMinDistance: Float = 0.8
+    var doorwayMaxDistance: Float = 3.5
+    var doorwayVoteWindow: Int = 15
+    var doorwayVotesNeeded: Int = 6
+    var doorwayHoldSeconds: Double = 4
+    var doorwayMatchRadius: Float = 0.5
+    /// The same doorway is announced again only after this long.
+    var doorwayRepeatSeconds: Double = 30
+    var doorwayStraightDegrees: Float = 10
+    var doorwaySlightDegrees: Float = 25
 
     static let defaults = Tuning()
 }
@@ -119,8 +135,8 @@ struct Tuning: Codable, Equatable, Sendable {
 @Observable
 final class TuningStore {
     // Bump the version whenever a field is added: the synthesized decoder rejects data missing a field.
-    // v4: identification settings.
-    private static let key = "scout.tuning.v4"
+    // v4: identification settings. v5: doorways.
+    private static let key = "scout.tuning.v5"
 
     var tuning: Tuning {
         didSet { save() }
